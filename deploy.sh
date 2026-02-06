@@ -9,7 +9,7 @@ set -euo pipefail
 #
 # This script is intentionally simple. Adjust service restart commands to your environment.
 
-LIVE_DIR="${LIVE_DIR:-/opt/nanobot}"
+LIVE_DIR="${LIVE_DIR:-/opt/nanobot-live}"
 REMOTE_NAME="${REMOTE_NAME:-origin}"
 BRANCH="${BRANCH:-main}"
 
