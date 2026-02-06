@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>nanobot - AI Assistant</title>
+    
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Code Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #161b22; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+        
+        .sidebar {
+            width: 260px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            flex-shrink: 0;
+        }
+        
+        .logo {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .logo-icon {
+            width: 24px;
+            height: 24px;
+            background: linear-gradient(135deg, #58a6ff, #a371f7);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+        
+        .new-chat-btn {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 16px;
+            transition: background 0.2s;
+        }
+        
+        .new-chat-btn:hover { background: #2ea043; }
+        .new-chat-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .sessions-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .session-item {
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 4px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        
+        .session-item:hover { background: #21262d; }
+        .session-item.active { background: #1f6feb; }
+        
+        .session-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #8b949e;
+            flex-shrink: 0;
+        }
+        
+        .session-status.running { 
+            background: #3fb950; 
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        
+        .chat-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        
+        .chat-title {
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .connection-status {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #21262d;
+        }
+        
+        .connection-status.connected { background: #238636; color: white; }
+        .connection-status.error { background: #da3633; color: white; }
+        
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .message {
+            max-width: 85%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.6;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .message.user {
+            align-self: flex-end;
+            background: #1f6feb;
+            color: white;
+        }
+        
+        .message.assistant {
+            align-self: flex-start;
+            background: #21262d;
+            border: 1px solid #30363d;
+        }
+        
+        /* Streaming cursor */
+        .streaming-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.2em;
+            background: #58a6ff;
+            margin-left: 2px;
+            animation: blink 1s infinite;
+            vertical-align: middle;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        
+        /* Markdown styling */
+        .message-content {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .message-content.streaming {
+            white-space: pre-wrap;
+        }
+        
+        .message-content h1,
+        .message-content h2,
+        .message-content h3,
+        .message-content h4 {
+            margin: 16px 0 8px 0;
+            font-weight: 600;
+            line-height: 1.3;
+        }
+        
+        .message-content h1 { font-size: 1.5em; border-bottom: 1px solid #30363d; padding-bottom: 8px; }
+        .message-content h2 { font-size: 1.3em; }
+        .message-content h3 { font-size: 1.1em; }
+        
+        .message-content p {
+            margin: 8px 0;
+        }
+        
+        .message-content ul,
+        .message-content ol {
+            margin: 8px 0;
+            padding-left: 24px;
+        }
+        
+        .message-content li {
+            margin: 4px 0;
+        }
+        
+        .message-content code {
+            background: rgba(110, 118, 129, 0.4);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.9em;
+        }
+        
+        .message-content pre {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 12px 0;
+            overflow-x: auto;
+        }
+        
+        .message-content pre code {
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+            font-size: 0.9em;
+        }
+        
+        .message-content blockquote {
+            border-left: 4px solid #30363d;
+            padding-left: 16px;
+            margin: 12px 0;
+            color: #8b949e;
+        }
+        
+        .message-content a {
+            color: #58a6ff;
+            text-decoration: none;
+        }
+        
+        .message-content a:hover {
+            text-decoration: underline;
+        }
+        
+        .message-content table {
+            border-collapse: collapse;
+            margin: 12px 0;
+            width: 100%;
+        }
+        
+        .message-content th,
+        .message-content td {
+            border: 1px solid #30363d;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        
+        .message-content th {
+            background: #21262d;
+        }
+        
+        .message-content hr {
+            border: none;
+            border-top: 1px solid #30363d;
+            margin: 16px 0;
+        }
+        
+        .input-area {
+            padding: 16px 24px;
+            border-top: 1px solid #30363d;
+            flex-shrink: 0;
+        }
+        
+        .input-wrapper {
+            display: flex;
+            gap: 12px;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 4px;
+            transition: border-color 0.2s;
+        }
+        
+        .input-wrapper:focus-within {
+            border-color: #58a6ff;
+        }
+        
+        .message-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 12px 16px;
+            color: inherit;
+            font-size: 14px;
+            outline: none;
+            resize: none;
+            max-height: 200px;
+            min-height: 44px;
+            font-family: inherit;
+        }
+        
+        .send-btn {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            align-self: flex-end;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+        
+        .send-btn:hover:not(:disabled) { background: #2ea043; }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: #8b949e;
+        }
+        
+        .empty-state h2 {
+            color: #c9d1d9;
+            margin-bottom: 8px;
+        }
+        
+        .error-toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #da3633;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            animation: slideIn 0.3s ease;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        .thinking-block {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 12px 0;
+            font-size: 14px;
+            color: #8b949e;
+        }
+        
+        .thinking-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #58a6ff;
+        }
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="logo">
+            <div class="logo-icon">🤖</div>
+            nanobot
+        </div>
+        <button class="new-chat-btn" onclick="createNewSession()">+ New Chat</button>
+        <div class="sessions-list" id="sessionsList"></div>
+    </aside>
+    
+    <main class="main">
+        <header class="chat-header">
+            <div class="chat-title" id="chatTitle">Select or create a chat</div>
+            <div class="connection-status" id="connectionStatus">Disconnected</div>
+        </header>
+        
+        <div class="messages" id="messages">
+            <div class="empty-state">
+                <h2>Welcome to nanobot</h2>
+                <p>Start a new conversation by clicking "New Chat"</p>
+            </div>
+        </div>
+        
+        <div class="input-area">
+            <div class="input-wrapper">
+                <textarea 
+                    class="message-input" 
+                    id="messageInput" 
+                    placeholder="Type your message..."
+                    rows="1"
+                    disabled
+                ></textarea>
+                <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // State
+        let currentSessionId = null;
+        let sessions = [];
+        let eventSource = null;
+        let isStreaming = false;
+        let streamBuffer = '';
+        let reconnectAttempts = 0;
+        let lastEventId = null;
+        let streamingIdleTimer = null;
+        const STREAMING_IDLE_TIMEOUT = 15000;
+        const MAX_RECONNECT_ATTEMPTS = 5;
+        
+        // DOM Elements
+        const sessionsList = document.getElementById('sessionsList');
+        const messagesContainer = document.getElementById('messages');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const chatTitle = document.getElementById('chatTitle');
+        const connectionStatus = document.getElementById('connectionStatus');
+        
+        // Configure marked for safe rendering
+        const hasMarked = typeof marked !== 'undefined';
+        const hasHljs = typeof hljs !== 'undefined';
+        if (hasMarked) {
+            marked.setOptions({
+                breaks: true,
+                gfm: true,
+                headerIds: false,
+                mangle: false,
+                sanitize: false,
+            });
+        }
+        
+        // API Helper
+        async function api(path, options = {}) {
+            const response = await fetch(`/api/v1${path}`, {
+                headers: { 'Content-Type': 'application/json' },
+                ...options,
+                body: options.body ? JSON.stringify(options.body) : undefined,
+            });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                throw new Error(error.detail || `HTTP ${response.status}`);
+            }
+            return response.json();
+        }
+        
+        // Create new session
+        async function createNewSession() {
+            try {
+                const session = await api('/sessions', { method: 'POST', body: { title: 'New Chat' } });
+                sessions.unshift(session);
+                renderSessions();
+                selectSession(session.id);
+            } catch (error) {
+                showError('Failed to create session: ' + error.message);
+            }
+        }
+        
+        // Select session
+        function selectSession(sessionId) {
+            currentSessionId = sessionId;
+            const session = sessions.find(s => s.id === sessionId);
+            
+            chatTitle.textContent = session?.title || 'Chat';
+            renderSessions();
+            
+            // Clear messages and show empty state if no messages
+            messagesContainer.innerHTML = '';
+            streamBuffer = '';
+            isStreaming = false;
+            lastEventId = null;
+            clearStreamingIdleTimer();
+            
+            // Enable input
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            messageInput.focus();
+            
+            // Reset reconnect attempts
+            reconnectAttempts = 0;
+            
+            // Connect to event stream
+            connectEventStream(sessionId);
+        }
+        
+        // Connect to SSE with auto-reconnect
+        function connectEventStream(sessionId) {
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            updateConnectionStatus('connecting');
+            let url = `/api/v1/sessions/${sessionId}/events`;
+            if (lastEventId) {
+                url += `?last_event_id=${encodeURIComponent(lastEventId)}`;
+            }
+            eventSource = new EventSource(url);
+            
+            eventSource.onopen = () => {
+                updateConnectionStatus('connected');
+                reconnectAttempts = 0;
+            };
+            
+            eventSource.onerror = (error) => {
+                updateConnectionStatus('error');
+                console.error('SSE error:', error);
+                
+                // Auto-reconnect with exponential backoff
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+                    console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
+                    
+                    setTimeout(() => {
+                        if (currentSessionId === sessionId) {
+                            connectEventStream(sessionId);
+                        }
+                    }, delay);
+                } else {
+                    showError('Connection lost. Please refresh the page.');
+                    updateSessionStatus('idle');
+                }
+            };
+            
+            eventSource.addEventListener('chat_event', (e) => {
+                try {
+                    const event = JSON.parse(e.data);
+                    lastEventId = e.lastEventId || event.id || lastEventId;
+                    handleEvent(event);
+                } catch (err) {
+                    console.error('Failed to parse event:', err);
+                }
+            });
+            
+            eventSource.addEventListener('heartbeat', () => {
+                updateConnectionStatus('connected');
+            });
+        }
+        
+        // Handle incoming events
+        function handleEvent(event) {
+            switch (event.type) {
+                case 'user':
+                    addMessage('user', event.payload.text);
+                    break;
+                    
+                case 'final':
+                    if (event.status === 'streaming') {
+                        streamBuffer += event.payload.delta || '';
+                        updateStreamingMessage(streamBuffer);
+                        isStreaming = true;
+                        resetStreamingIdleTimer();
+                    } else if (event.status === 'done') {
+                        // Final render with complete markdown
+                        streamBuffer = event.payload.text || streamBuffer;
+                        finalizeStreamingMessage(streamBuffer);
+                        streamBuffer = '';
+                        isStreaming = false;
+                        clearStreamingIdleTimer();
+                        // Reset session status to enable input
+                        updateSessionStatus('idle');
+                    }
+                    break;
+                    
+                case 'error':
+                    showError(event.payload.message);
+                    updateSessionStatus('idle');
+                    streamBuffer = '';
+                    isStreaming = false;
+                    clearStreamingIdleTimer();
+                    break;
+                    
+                case 'thinking':
+                    updateThinkingBlock(event.payload);
+                    break;
+            }
+        }
+        
+        // Add message to UI
+        function addMessage(role, text) {
+            // Remove empty state if present
+            if (messagesContainer.querySelector('.empty-state')) {
+                messagesContainer.innerHTML = '';
+            }
+            
+            const msg = document.createElement('div');
+            msg.className = `message ${role}`;
+            
+            if (role === 'assistant') {
+                // Render markdown for assistant messages
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.innerHTML = renderMarkdown(text || '');
+                applyHighlighting(contentDiv);
+                msg.appendChild(contentDiv);
+            } else {
+                msg.textContent = text;
+            }
+            
+            messagesContainer.appendChild(msg);
+            scrollToBottom();
+            return msg;
+        }
+        
+        // Update streaming message in real-time
+        function updateStreamingMessage(text) {
+            let msg = messagesContainer.lastElementChild;
+            
+            if (!msg || !msg.classList.contains('assistant')) {
+                // Remove empty state if present
+                if (messagesContainer.querySelector('.empty-state')) {
+                    messagesContainer.innerHTML = '';
+                }
+                
+                msg = document.createElement('div');
+                msg.className = 'message assistant';
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.classList.add('streaming');
+                msg.appendChild(contentDiv);
+                messagesContainer.appendChild(msg);
+            }
+            
+            const contentDiv = msg.querySelector('.message-content');
+            if (contentDiv) {
+                contentDiv.classList.add('streaming');
+                contentDiv.textContent = text || '';
+                const cursor = document.createElement('span');
+                cursor.className = 'streaming-cursor';
+                contentDiv.appendChild(cursor);
+            }
+            
+            scrollToBottom();
+        }
+        
+        // Finalize streaming message (remove cursor, final render)
+        function finalizeStreamingMessage(text) {
+            let msg = messagesContainer.lastElementChild;
+            
+            if (!msg || !msg.classList.contains('assistant')) {
+                addMessage('assistant', text);
+                return;
+            }
+            
+            const contentDiv = msg.querySelector('.message-content');
+            if (contentDiv) {
+                try {
+                    contentDiv.innerHTML = renderMarkdown(text || '');
+                    contentDiv.classList.remove('streaming');
+                    applyHighlighting(contentDiv);
+                } catch (e) {
+                    contentDiv.textContent = text;
+                    contentDiv.classList.remove('streaming');
+                }
+            }
+            
+            scrollToBottom();
+        }
+        
+        // Update thinking block (placeholder for future use)
+        function updateThinkingBlock(payload) {
+            // This can be implemented to show thinking blocks
+            console.log('Thinking:', payload);
+        }
+        
+        // Send message
+        async function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text || !currentSessionId) return;
+            
+            messageInput.value = '';
+            messageInput.disabled = true;
+            sendBtn.disabled = true;
+            streamBuffer = '';
+            clearStreamingIdleTimer();
+            
+            try {
+                await api(`/sessions/${currentSessionId}/messages`, {
+                    method: 'POST',
+                    body: { content: text },
+                });
+                updateSessionStatus('running');
+                
+                // Safety timeout: force reset after 120 seconds if no response
+                setTimeout(() => {
+                    const session = sessions.find(s => s.id === currentSessionId);
+                    if (session && session.status === 'running') {
+                        updateSessionStatus('idle');
+                        showError('Request timeout, please try again');
+                        streamBuffer = '';
+                        isStreaming = false;
+                    }
+                }, 120000);
+            } catch (error) {
+                showError('Failed to send message: ' + error.message);
+                messageInput.disabled = false;
+                sendBtn.disabled = false;
+                streamBuffer = '';
+            }
+        }
+        
+        // Update connection status UI
+        function updateConnectionStatus(status) {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.className = 'connection-status';
+            
+            switch (status) {
+                case 'connected':
+                    statusEl.textContent = 'Connected';
+                    statusEl.classList.add('connected');
+                    break;
+                case 'connecting':
+                    statusEl.textContent = 'Connecting...';
+                    break;
+                case 'error':
+                    statusEl.textContent = 'Error';
+                    statusEl.classList.add('error');
+                    break;
+                default:
+                    statusEl.textContent = 'Disconnected';
+            }
+        }
+        
+        // Update session status in sidebar
+        function updateSessionStatus(status) {
+            const session = sessions.find(s => s.id === currentSessionId);
+            if (session) {
+                session.status = status;
+                renderSessions();
+            }
+            
+            if (status === 'idle') {
+                messageInput.disabled = false;
+                sendBtn.disabled = false;
+                messageInput.focus();
+            }
+        }
+        
+        // Render sessions list
+        function renderSessions() {
+            sessionsList.innerHTML = sessions.map(session => `
+                <div class="session-item ${session.id === currentSessionId ? 'active' : ''}" 
+                     onclick="selectSession('${session.id}')">
+                    <div class="session-status ${session.status}"></div>
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${escapeHtml(session.title)}
+                    </span>
+                </div>
+            `).join('');
+        }
+        
+        // Utility: Escape HTML
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderMarkdown(text) {
+            if (hasMarked) {
+                try {
+                    return marked.parse(text || '');
+                } catch (e) {
+                    return escapeHtml(text).replace(/\n/g, '<br>');
+                }
+            }
+            return escapeHtml(text).replace(/\n/g, '<br>');
+        }
+
+        function applyHighlighting(container) {
+            if (!hasHljs || !container) return;
+            container.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        }
+
+        function resetStreamingIdleTimer() {
+            clearStreamingIdleTimer();
+            streamingIdleTimer = setTimeout(() => {
+                if (isStreaming && streamBuffer) {
+                    finalizeStreamingMessage(streamBuffer);
+                    showError('Streaming interrupted, response may be incomplete');
+                    streamBuffer = '';
+                    isStreaming = false;
+                    updateSessionStatus('idle');
+                }
+            }, STREAMING_IDLE_TIMEOUT);
+        }
+
+        function clearStreamingIdleTimer() {
+            if (streamingIdleTimer) {
+                clearTimeout(streamingIdleTimer);
+                streamingIdleTimer = null;
+            }
+        }
+        
+        // Utility: Scroll to bottom
+        function scrollToBottom() {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        // Utility: Show error toast
+        function showError(message) {
+            const toast = document.createElement('div');
+            toast.className = 'error-toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 5000);
+        }
+        
+        // Event listeners
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        messageInput.addEventListener('input', () => {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = Math.min(messageInput.scrollHeight, 200) + 'px';
+        });
+        
+        // Load sessions on startup
+        async function loadSessions() {
+            try {
+                sessions = await api('/sessions');
+                renderSessions();
+                
+                // Auto-select first session if available
+                if (sessions.length > 0) {
+                    selectSession(sessions[0].id);
+                }
+            } catch (error) {
+                showError('Failed to load sessions: ' + error.message);
+            }
+        }
+        
+        // Initialize
+        loadSessions();
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+</body>
+</html>
