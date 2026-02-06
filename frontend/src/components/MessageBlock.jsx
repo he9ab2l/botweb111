@@ -50,76 +50,95 @@ export default function MessageBlock({ block, isStreaming, streamingText, viewMo
     }
   }
 
+  const MessageCard = ({ className, children }) => {
+    return (
+      <div className={cn('border border-border-soft', className)}>
+        {children}
+      </div>
+    )
+  }
+
+  const MessageContent = ({ className, children }) => {
+    return <div className={className}>{children}</div>
+  }
+
+  const MessageFooter = () => {
+    // Keep footer height stable to avoid layout jitter during streaming.
+    // Copy button stays present (disabled when no text).
+    return (
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-[10px] text-text-muted tabular-nums leading-none">
+          {block.ts ? formatTime(block.ts) : ''}
+        </span>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1" aria-hidden="true" />
+
+          <button
+            type="button"
+            onClick={handleCopy}
+            disabled={!text}
+            aria-label="Copy message"
+            title="Copy"
+            className={cn(
+              'h-10 w-10 inline-flex items-center justify-center rounded-md',
+              'border border-border-soft bg-bg-secondary/40',
+              'text-text-muted hover:text-text-secondary hover:border-border',
+              'transition-colors',
+              'disabled:opacity-40 disabled:cursor-not-allowed'
+            )}
+          >
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (isChat) {
     return (
       <div className={cn(
         'flex py-1.5',
         isUser ? 'justify-end' : 'justify-start'
       )}>
-        <div className={cn(
-          'group relative max-w-[92%] sm:max-w-[85%] rounded-bubble px-3 py-2',
-          isUser
-            ? 'bg-bubble-user border border-border-soft'
-            : 'bg-bubble-assistant border border-border-soft'
-        )}>
-          <div className="prose text-[14px] sm:text-[13px] leading-[1.5] text-text-primary">
+        <MessageCard
+          className={cn(
+            'max-w-[92%] sm:max-w-[85%] rounded-bubble px-3 py-2',
+            isUser ? 'bg-bubble-user' : 'bg-bubble-assistant'
+          )}
+        >
+          <MessageContent className="prose text-[14px] sm:text-[13px] leading-[1.5] text-text-primary">
             <MarkdownContent text={text} />
             {isStreaming && (
               <span className="inline-block w-1 h-3 ml-0.5 bg-text-muted animate-blink rounded-sm" />
             )}
-          </div>
+          </MessageContent>
 
-          {text && !isStreaming && (
-            <button
-              onClick={handleCopy}
-              className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 px-1.5 py-0.5 rounded border border-border-soft bg-bg text-text-muted hover:text-text-secondary text-[10px] transition-opacity"
-            >
-              {copied ? <Check size={10} /> : <Copy size={10} />}
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          )}
-
-          {block.ts && (
-            <div className={cn(
-              'text-[10px] text-text-muted mt-1',
-              isUser ? 'text-right' : 'text-left'
-            )}>
-              {formatTime(block.ts)}
-            </div>
-          )}
-        </div>
+          <MessageFooter />
+        </MessageCard>
       </div>
     )
   }
 
   return (
-    <div className="group py-1.5">
-      <div className="min-w-0 relative">
-        <div className="flex items-center gap-1.5 mb-1">
-          <span className="text-[10px] tracking-wide uppercase text-text-muted">
-            {isUser ? 'You' : 'nanobot'}
-          </span>
-          {block.ts && (
-            <span className="text-[10px] text-text-muted">{formatTime(block.ts)}</span>
-          )}
-        </div>
+    <div className="py-1.5">
+      <div className="min-w-0">
+        <MessageCard className="rounded-md px-3 py-2 bg-bg-secondary/35">
+          <MessageContent className="prose text-[14px] sm:text-[13px] text-text-primary leading-[1.5]">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-[10px] tracking-wide uppercase text-text-muted">
+                {isUser ? 'You' : 'nanobot'}
+              </span>
+            </div>
 
-        <div className="prose text-[14px] sm:text-[13px] text-text-primary leading-[1.5] border border-border-soft rounded-md px-3 py-2 bg-bg-secondary/35">
           <MarkdownContent text={text} />
           {isStreaming && (
             <span className="inline-block w-1 h-3 ml-0.5 bg-text-muted animate-blink rounded-sm" />
           )}
-        </div>
+          </MessageContent>
 
-        {text && !isStreaming && (
-          <button
-            onClick={handleCopy}
-            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 px-1.5 py-0.5 rounded border border-border-soft bg-bg text-text-muted hover:text-text-secondary text-[10px] transition-opacity"
-          >
-            {copied ? <Check size={10} /> : <Copy size={10} />}
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        )}
+          <MessageFooter />
+        </MessageCard>
       </div>
     </div>
   )
