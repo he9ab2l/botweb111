@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Copy, Check } from 'lucide-react'
 import CodeBlock from './CodeBlock'
-import { cn, formatTime, copyToClipboard } from '../lib/utils'
+import { cn, formatTime, formatDuration, copyToClipboard } from '../lib/utils'
 
 /**
  * MarkdownContent — renders markdown text with GFM + code blocks
@@ -67,9 +67,17 @@ export default function MessageBlock({ block, isStreaming, streamingText, viewMo
     // Copy button stays present (disabled when no text).
     return (
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-text-muted tabular-nums leading-none">
-          {block.ts ? formatTime(block.ts) : ''}
-        </span>
+        <div className="min-w-0 flex items-center gap-2">
+          <span className="text-[10px] text-text-muted tabular-nums leading-none">
+            {block.ts ? formatTime(block.ts) : ''}
+          </span>
+
+          {block.type === 'assistant' && block.thinking_ms != null && block.thinking_ms > 0 && (
+            <span className="text-[10px] text-text-muted leading-none">
+              Think {formatDuration(block.thinking_ms)}
+            </span>
+          )}
+        </div>
 
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1" aria-hidden="true" />

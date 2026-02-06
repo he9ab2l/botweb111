@@ -10,9 +10,11 @@ const initialState = {
   blocks: [],         // timeline blocks
   streamingText: '',  // current streaming text accumulator
   streamingBlockId: null,
+  lastAssistantBlockId: null,
   thinkingText: '',
   thinkingBlockId: null,
   thinkingStart: null,
+  pendingThinkingDurationMs: null,
   runId: null,
   status: 'idle',     // idle | running | error
   lastEventId: null,
@@ -80,9 +82,12 @@ function reducer(state, action) {
             type: 'assistant',
             text: state.streamingText,
             ts: action.ts,
+            thinking_ms: state.pendingThinkingDurationMs || null,
           }],
           streamingText: '',
           streamingBlockId: null,
+          lastAssistantBlockId: block_id,
+          pendingThinkingDurationMs: null,
         }
       }
       return { ...state, streamingBlockId: null }
@@ -99,18 +104,30 @@ function reducer(state, action) {
         }
       }
       if (status === 'end' && state.thinkingBlockId) {
+        // Attach thinking duration to the most recent assistant message if present.
+        // If the assistant message hasn't been created yet, stash it for later.
+        const thinkingMs = duration_ms || 0
+        let blocks = state.blocks
+        if (state.lastAssistantBlockId) {
+          blocks = blocks.map(b =>
+            b.id === state.lastAssistantBlockId && b.type === 'assistant'
+              ? { ...b, thinking_ms: thinkingMs }
+              : b
+          )
+        }
         return {
           ...state,
-          blocks: [...state.blocks, {
+          blocks: [...blocks, {
             id: state.thinkingBlockId,
             type: 'thinking',
             text: state.thinkingText,
-            duration_ms: duration_ms || 0,
+            duration_ms: thinkingMs,
             ts: state.thinkingStart || action.ts,
           }],
           thinkingBlockId: null,
           thinkingText: '',
           thinkingStart: null,
+          pendingThinkingDurationMs: state.lastAssistantBlockId ? null : thinkingMs,
         }
       }
       return state
@@ -200,11 +217,13 @@ function reducer(state, action) {
       // Flush any remaining streaming text
       let blocks = state.blocks
       if (state.streamingText) {
+        const id = state.streamingBlockId || `text_${Date.now()}`
         blocks = [...blocks, {
-          id: state.streamingBlockId || `text_${Date.now()}`,
+          id,
           type: 'assistant',
           text: state.streamingText,
           ts: action.ts,
+          thinking_ms: state.pendingThinkingDurationMs || null,
         }]
       }
       return {
@@ -212,6 +231,8 @@ function reducer(state, action) {
         blocks,
         streamingText: '',
         streamingBlockId: null,
+        lastAssistantBlockId: state.streamingText ? (state.streamingBlockId || state.lastAssistantBlockId) : state.lastAssistantBlockId,
+        pendingThinkingDurationMs: state.streamingText ? null : state.pendingThinkingDurationMs,
         status: 'idle',
       }
     }
