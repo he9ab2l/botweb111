@@ -57,12 +57,12 @@ export default function MessageBlock({ block, isStreaming, streamingText, viewMo
         isUser ? 'justify-end' : 'justify-start'
       )}>
         <div className={cn(
-          'group relative max-w-[85%] rounded-bubble px-3 py-2',
+          'group relative max-w-[92%] sm:max-w-[85%] rounded-bubble px-3 py-2',
           isUser
             ? 'bg-bubble-user border border-border-soft'
             : 'bg-bubble-assistant border border-border-soft'
         )}>
-          <div className="prose text-[13px] leading-[1.5] text-text-primary">
+          <div className="prose text-[14px] sm:text-[13px] leading-[1.5] text-text-primary">
             <MarkdownContent text={text} />
             {isStreaming && (
               <span className="inline-block w-1 h-3 ml-0.5 bg-text-muted animate-blink rounded-sm" />
@@ -104,7 +104,7 @@ export default function MessageBlock({ block, isStreaming, streamingText, viewMo
           )}
         </div>
 
-        <div className="prose text-[13px] text-text-primary leading-[1.5] border border-border-soft rounded-md px-3 py-2 bg-bg-secondary/35">
+        <div className="prose text-[14px] sm:text-[13px] text-text-primary leading-[1.5] border border-border-soft rounded-md px-3 py-2 bg-bg-secondary/35">
           <MarkdownContent text={text} />
           {isStreaming && (
             <span className="inline-block w-1 h-3 ml-0.5 bg-text-muted animate-blink rounded-sm" />

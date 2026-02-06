@@ -6,6 +6,8 @@ A self-hosted AI chat agent with a web UI. Python (FastAPI + SSE) backend with a
 
 - **Streaming responses** via Server-Sent Events (SSE)
 - **Dual mode UI** — Chat mode (clean conversation view) and Agent mode (full execution trace)
+- **Mobile-friendly layout** — drawer sidebar/inspector with safe-area padding
+- **PWA support** — installable web app (manifest + service worker)
 - **Tool execution** — the agent can run tools, apply patches, and show thinking steps
 - **Session persistence** — conversations are stored in SQLite and survive restarts
 - **Auto session naming** — sessions are automatically titled by the LLM
@@ -101,11 +103,23 @@ npm run build
 cd ..
 ```
 
+Important:
+
+- Run `npm` commands inside `frontend/` only.
+- The backend does not have Node dependencies.
+
 The build output goes to `nanobot/web/static/dist/` and is served by FastAPI automatically.
 
 ### 4. Configure
 
-Create `~/.nanobot/config.json`:
+Create `~/.nanobot/config.json` (quick start: copy `config.example.json` and edit keys):
+
+```bash
+mkdir -p ~/.nanobot
+cp ./config.example.json ~/.nanobot/config.json
+```
+
+Example:
 
 ```json
 {
@@ -121,6 +135,8 @@ Create `~/.nanobot/config.json`:
   }
 }
 ```
+
+If the API key is not configured, opening the web UI will show a setup page instead of the chat UI.
 
 ### 5. Run
 

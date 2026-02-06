@@ -25,9 +25,25 @@ npm run build
 cd ..
 ```
 
+Note:
+
+- Run `npm` commands inside `frontend/` only. The backend does not use Node.
+- The build output goes to `nanobot/web/static/dist/` and is served by FastAPI.
+
 ## 4) Runtime config
 
 Create `~/.nanobot/config.json` and put your API and model settings.
+
+Quick start:
+
+```bash
+mkdir -p ~/.nanobot
+cp ./config.example.json ~/.nanobot/config.json
+```
+
+Then edit `~/.nanobot/config.json` and set at least one provider `apiKey` (e.g. `providers.openrouter.apiKey`).
+
+If the API key is not configured, opening the web UI will show a setup page instead of the chat UI.
 
 ## 5) Start web service (example)
 

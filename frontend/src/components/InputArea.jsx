@@ -40,7 +40,7 @@ export default function InputArea({ onSend, onCancel, isRunning, disabled }) {
   }, [handleSend])
 
   return (
-    <div className="border-t border-border-soft bg-bg p-3">
+    <div className="border-t border-border-soft bg-bg p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
       <div className="flex items-end gap-2 max-w-chat mx-auto">
         <textarea
           ref={textareaRef}

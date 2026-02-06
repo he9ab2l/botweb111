@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useEventStream } from './hooks/useEventStream'
+import { useMediaQuery } from './hooks/useMediaQuery'
 import { createSession, listSessions, deleteSession, getSession, renameSession, sendMessage, cancelRun } from './lib/api'
 import { cn } from './lib/utils'
 import Sidebar from './components/Sidebar'
@@ -9,6 +10,8 @@ import InputArea from './components/InputArea'
 import Inspector from './components/Inspector'
 
 export default function App() {
+  const isMobile = useMediaQuery('(max-width: 768px)')
+
   // Session state
   const [sessions, setSessions] = useState([])
   const [activeSessionId, setActiveSessionId] = useState(null)
@@ -29,6 +32,17 @@ export default function App() {
       .then(list => setSessions(list))
       .catch(err => console.error('Failed to load sessions:', err))
   }, [])
+
+  // On mobile, default panels to closed.
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarOpen(false)
+      setInspectorOpen(false)
+      return
+    }
+
+    setSidebarOpen(true)
+  }, [isMobile])
 
   // Reload session list periodically to catch auto-naming updates
   useEffect(() => {
@@ -97,14 +111,16 @@ export default function App() {
   useEffect(() => {
     if (viewMode === 'agent') {
       setInspectorOpen(true)
+      if (isMobile) setSidebarOpen(false)
     }
-  }, [viewMode])
+  }, [viewMode, isMobile])
 
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault()
         setSidebarOpen(true)
+        if (isMobile) setInspectorOpen(false)
         setSearchFocusTrigger(prev => prev + 1)
       }
       if (e.key === 'Escape') {
@@ -113,7 +129,7 @@ export default function App() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [isMobile])
 
   // Create new session
   const handleNewSession = useCallback(async () => {
@@ -129,7 +145,8 @@ export default function App() {
   // Select session
   const handleSelectSession = useCallback((id) => {
     setActiveSessionId(id)
-  }, [])
+    if (isMobile) setSidebarOpen(false)
+  }, [isMobile])
 
   // Delete session
   const handleDeleteSession = useCallback(async (id) => {
@@ -215,31 +232,63 @@ export default function App() {
   const pendingForActive = activeSessionId ? (pendingMessages[activeSessionId] || []) : []
   const allBlocks = [...historyMessages, ...pendingForActive, ...eventState.blocks]
 
+  const toggleSidebar = () => {
+    setSidebarOpen(o => {
+      const next = !o
+      if (isMobile && next) setInspectorOpen(false)
+      return next
+    })
+  }
+
+  const toggleInspector = () => {
+    setInspectorOpen(o => {
+      const next = !o
+      if (isMobile && next) setSidebarOpen(false)
+      return next
+    })
+  }
+
   return (
-    <div className="flex h-screen bg-bg text-text-primary overflow-hidden">
+    <div className="flex h-dvh bg-bg text-text-primary overflow-hidden">
       {sidebarOpen && (
-        <div className="w-64 shrink-0">
-          <Sidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelectSession={handleSelectSession}
-            onNewSession={handleNewSession}
-            onDeleteSession={handleDeleteSession}
-            onRenameSession={handleRenameSession}
-            searchFocusTrigger={searchFocusTrigger}
-          />
-        </div>
+        <>
+          {isMobile && (
+            <button
+              className="fixed inset-0 z-40 bg-black/20"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close sidebar"
+            />
+          )}
+
+          <div
+            className={cn(
+              isMobile
+                ? 'fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] shadow-xl'
+                : 'w-64 shrink-0'
+            )}
+          >
+            <Sidebar
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelectSession={handleSelectSession}
+              onNewSession={handleNewSession}
+              onDeleteSession={handleDeleteSession}
+              onRenameSession={handleRenameSession}
+              searchFocusTrigger={searchFocusTrigger}
+            />
+          </div>
+        </>
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-bg">
+        <div className="flex items-center justify-between px-3 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] border-b border-border bg-bg">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setSidebarOpen(o => !o)}
+              onClick={toggleSidebar}
               className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors"
               title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
             >
-              {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+              {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
             </button>
 
             {activeSessionId && (
@@ -278,14 +327,14 @@ export default function App() {
             </div>
 
             <button
-              onClick={() => setInspectorOpen(o => !o)}
+              onClick={toggleInspector}
               className={cn(
                 'p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors ml-1',
                 inspectorOpen && 'text-text-primary bg-bg-secondary'
               )}
               title={inspectorOpen ? 'Close inspector' : 'Open inspector'}
             >
-              {inspectorOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+              {inspectorOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
             </button>
 
             <span
@@ -317,7 +366,7 @@ export default function App() {
         )}
 
         {!activeSessionId && (
-          <div className="border-t border-border bg-bg p-3">
+          <div className="border-t border-border bg-bg p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
             <div className="max-w-chat mx-auto">
               <button
                 onClick={handleNewSession}
@@ -331,17 +380,33 @@ export default function App() {
       </div>
 
       {inspectorOpen && (
-        <div className="w-72 shrink-0">
-          <Inspector
-            toolCalls={eventState.toolCalls}
-            usage={eventState.usage}
-            stopReason={eventState.stopReason}
-            runId={eventState.runId}
-            connectionStatus={eventState.connectionStatus}
-            status={eventState.status}
-            blocks={allBlocks}
-          />
-        </div>
+        <>
+          {isMobile && (
+            <button
+              className="fixed inset-0 z-40 bg-black/20"
+              onClick={() => setInspectorOpen(false)}
+              aria-label="Close inspector"
+            />
+          )}
+
+          <div
+            className={cn(
+              isMobile
+                ? 'fixed inset-y-0 right-0 z-50 w-[min(22rem,85vw)] shadow-xl'
+                : 'w-72 shrink-0'
+            )}
+          >
+            <Inspector
+              toolCalls={eventState.toolCalls}
+              usage={eventState.usage}
+              stopReason={eventState.stopReason}
+              runId={eventState.runId}
+              connectionStatus={eventState.connectionStatus}
+              status={eventState.status}
+              blocks={allBlocks}
+            />
+          </div>
+        </>
       )}
     </div>
   )
