@@ -6,8 +6,8 @@
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,0.28); }
 
 html { scroll-behavior: smooth; }
 
@@ -16,12 +16,13 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
-  height: 100vh;
-  background: #0b0f14;
-  color: #e6edf3;
+  height: 100dvh;
+  min-height: 100vh;
+  background: #f7f7f6;
+  color: #0f172a;
 }
 
-#root { height: 100vh; }
+#root { height: 100dvh; min-height: 100vh; }
 
 .prose {
   line-height: 1.55;
@@ -36,35 +37,35 @@ body {
 .prose h1, .prose h2, .prose h3, .prose h4 {
   margin: 0.85rem 0 0.4rem;
   font-weight: 500;
-  color: #e6edf3;
+  color: #0f172a;
   line-height: 1.35;
 }
 .prose h1 {
   font-size: 1.2em;
-  border-bottom: 1px solid #1f2933;
+  border-bottom: 1px solid #e2e8f0;
   padding-bottom: 0.35rem;
 }
 .prose h2 { font-size: 1.1em; }
 .prose h3 { font-size: 1em; }
 .prose blockquote {
-  border-left: 2px solid #1f2933;
+  border-left: 2px solid #e2e8f0;
   padding-left: 0.75rem;
-  color: #9da7b3;
+  color: #475569;
   margin: 0.6rem 0;
 }
 .prose table { border-collapse: collapse; margin: 0.6rem 0; width: 100%; }
 .prose th, .prose td {
-  border: 1px solid #1f2933;
+  border: 1px solid #e2e8f0;
   padding: 0.4rem 0.55rem;
   text-align: left;
 }
-.prose th { background: #111827; }
-.prose a { color: #3b82f6; text-decoration: none; }
+.prose th { background: #f1f5f9; }
+.prose a { color: #2563eb; text-decoration: none; }
 .prose a:hover { text-decoration: underline; }
-.prose hr { border: none; border-top: 1px solid #1f2933; margin: 0.85rem 0; }
+.prose hr { border: none; border-top: 1px solid #e2e8f0; margin: 0.85rem 0; }
 .prose code {
-  background: rgba(255,255,255,0.05);
-  color: #dce3ea;
+  background: rgba(15,23,42,0.06);
+  color: #0f172a;
   padding: 0.12rem 0.34rem;
   border-radius: 4px;
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
@@ -72,6 +73,6 @@ body {
 }
 .prose pre code { background: transparent; padding: 0; border-radius: 0; }
 
-.diff-add { background: rgba(34,197,94,0.09); color: #6ee7a5; }
-.diff-del { background: rgba(239,68,68,0.08); color: #fca5a5; }
-.diff-hunk { color: #9da7b3; }
+.diff-add { background: rgba(22,163,74,0.10); color: #166534; }
+.diff-del { background: rgba(220,38,38,0.10); color: #7f1d1d; }
+.diff-hunk { color: #64748b; }

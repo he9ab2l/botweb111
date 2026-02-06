@@ -4,20 +4,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: { DEFAULT: '#0b0f14', secondary: '#0f172a', tertiary: '#111827' },
-        border: { DEFAULT: '#1f2933', soft: '#18202a', hover: '#263241' },
-        text: { primary: '#e6edf3', secondary: '#9da7b3', muted: '#6b7280' },
-        accent: { blue: '#3b82f6' },
+        bg: { DEFAULT: '#f7f7f6', secondary: '#ffffff', tertiary: '#f1f5f9' },
+        border: { DEFAULT: '#e2e8f0', soft: '#edf2f7', hover: '#cbd5e1' },
+        text: { primary: '#0f172a', secondary: '#334155', muted: '#64748b' },
+        accent: { blue: '#2563eb' },
         status: {
-          running: '#3b82f6',
-          success: '#22c55e',
-          error: '#ef4444',
-          pending: '#f59e0b',
+          running: '#2563eb',
+          success: '#16a34a',
+          error: '#dc2626',
+          pending: '#d97706',
         },
-        btn: { primary: '#3b82f6', 'primary-hover': '#2563eb' },
+        btn: { primary: '#2563eb', 'primary-hover': '#1d4ed8' },
         bubble: {
-          user: 'rgba(59,130,246,0.05)',
-          assistant: '#0f172a',
+          user: 'rgba(37,99,235,0.08)',
+          assistant: '#ffffff',
         },
       },
       fontFamily: {
