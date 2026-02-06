@@ -458,11 +458,12 @@ cp ./config.example.json ~/.nanobot/config.json
         # Prefer new React build
         new_index = dist_dir / "index.html"
         if new_index.exists():
-            return FileResponse(str(new_index))
+            # Never cache index.html; otherwise clients may keep an old index that references removed hashed assets.
+            return FileResponse(str(new_index), headers={"Cache-Control": "no-store"})
         # Fall back to old index
         old_index = static_dir / "index.html"
         if old_index.exists():
-            return FileResponse(str(old_index))
+            return FileResponse(str(old_index), headers={"Cache-Control": "no-store"})
         return {"message": "nanobot web api", "docs": "/docs"}
 
     # SPA catch-all: serve index.html for client-side routing
@@ -493,7 +494,7 @@ cp ./config.example.json ~/.nanobot/config.json
             raise HTTPException(status_code=404)
         new_index = dist_dir / "index.html"
         if new_index.exists():
-            return FileResponse(str(new_index))
+            return FileResponse(str(new_index), headers={"Cache-Control": "no-store"})
         raise HTTPException(status_code=404)
 
     return app
