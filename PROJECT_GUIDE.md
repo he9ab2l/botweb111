@@ -123,7 +123,28 @@ In the repo there is a minimal deploy helper:
 
 It force-syncs a live directory to `origin/main`.
 
+It also rebuilds the frontend and restarts the service by default.
+
+Why this matters:
+
+- The frontend build output (`nanobot/web/static/dist/`) is gitignored, so simply updating the git commit is not enough.
+- If you deploy new backend event protocol changes without rebuilding the frontend, the web UI can appear broken (no streaming / no tool trace).
+
 In this server setup, production lives at `/opt/nanobot-live`.
+
+Usage:
+
+```bash
+cd /opt/nanobot-work
+./deploy.sh
+```
+
+Optional flags:
+
+```bash
+# deploy code only
+BUILD_FRONTEND=0 RESTART_SERVICE=0 ./deploy.sh
+```
 
 ## Security / Secrets
 
