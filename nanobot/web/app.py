@@ -9,10 +9,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pathlib import Path
+import mimetypes
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -54,30 +55,34 @@ def create_app() -> FastAPI:
     model = config.agents.defaults.model
     is_bedrock = model.startswith("bedrock/")
 
-    if not api_key and not is_bedrock:
-        raise RuntimeError("No API key configured. Set one in ~/.nanobot/config.json")
+    # Keep the web server running even when LLM access is not configured.
+    # The UI will show a setup page and API endpoints that require the LLM will return 503.
+    missing_llm_config = (not api_key and not is_bedrock)
 
     bus = MessageBus()
     events = EventHub()
     db = Database()
 
-    provider = LiteLLMProvider(
-        api_key=api_key,
-        api_base=api_base,
-        default_model=model,
-    )
-    agent = AgentLoop(
-        bus=bus,
-        provider=provider,
-        workspace=config.workspace_path,
-        model=model,
-        max_iterations=config.agents.defaults.max_tool_iterations,
-        brave_api_key=config.tools.web.search.api_key or None,
-        exec_config=config.tools.exec,
-        event_callback=events.publish,
-        stream_final_events=True,
-        final_event_chunk_size=20,
-    )
+    provider: LiteLLMProvider | None = None
+    agent: AgentLoop | None = None
+    if not missing_llm_config:
+        provider = LiteLLMProvider(
+            api_key=api_key,
+            api_base=api_base,
+            default_model=model,
+        )
+        agent = AgentLoop(
+            bus=bus,
+            provider=provider,
+            workspace=config.workspace_path,
+            model=model,
+            max_iterations=config.agents.defaults.max_tool_iterations,
+            brave_api_key=config.tools.web.search.api_key or None,
+            exec_config=config.tools.exec,
+            event_callback=events.publish,
+            stream_final_events=True,
+            final_event_chunk_size=20,
+        )
 
     running_tasks: dict[str, asyncio.Task[None]] = {}
     sessions_lock = asyncio.Lock()
@@ -94,7 +99,8 @@ def create_app() -> FastAPI:
             pass  # Don't break SSE if DB write fails
 
     events.publish = _dual_publish  # type: ignore[assignment]
-    agent._event_callback = _dual_publish
+    if agent is not None:
+        agent._event_callback = _dual_publish
 
     app = FastAPI(title="nanobot web api", version="0.3.0")
     app.add_middleware(
@@ -109,6 +115,9 @@ def create_app() -> FastAPI:
 
     async def _auto_name_session(session_id: str, user_text: str) -> None:
         """Generate a short title for the session from the first user message."""
+        if provider is None:
+            return
+        assert provider is not None
         try:
             # Try LLM-based naming
             naming_messages = [
@@ -141,7 +150,76 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, Any]:
-        return {"ok": True, "time": _now_iso(), "version": "0.3.0"}
+        return {
+            "ok": True,
+            "time": _now_iso(),
+            "version": "0.3.0",
+            "llm_configured": not missing_llm_config,
+        }
+
+    def _setup_page() -> HTMLResponse:
+        html = """<!doctype html>
+<html lang=\"en\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover\" />
+    <meta name=\"theme-color\" content=\"#f7f7f6\" />
+    <title>nanobot - Setup</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: #f7f7f6; color: #0f172a; }
+      .wrap { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+      .card { width: min(760px, 100%); background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; box-shadow: 0 18px 50px rgba(15,23,42,0.08); overflow: hidden; }
+      header { padding: 18px 20px; background: linear-gradient(135deg, rgba(37,99,235,0.10), rgba(14,165,233,0.08)); border-bottom: 1px solid #e2e8f0; }
+      h1 { margin: 0; font-size: 16px; letter-spacing: 0.2px; }
+      p { margin: 10px 0; color: #334155; line-height: 1.6; font-size: 13px; }
+      .body { padding: 16px 20px 20px; }
+      pre { margin: 10px 0; background: #0b1220; color: #e2e8f0; padding: 12px 12px; border-radius: 10px; overflow: auto; font-size: 12px; line-height: 1.55; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+      .hint { font-size: 12px; color: #64748b; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+      a { color: #2563eb; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .pill { display: inline-block; padding: 2px 8px; border: 1px solid #e2e8f0; border-radius: 999px; font-size: 11px; color: #334155; background: #f8fafc; }
+    </style>
+  </head>
+  <body>
+    <div class=\"wrap\">
+      <div class=\"card\">
+        <header>
+          <h1>nanobot needs an API key</h1>
+          <p class=\"hint\">The server is running, but LLM access is not configured yet.</p>
+        </header>
+        <div class=\"body\">
+          <p>Create <span class=\"pill\">~/.nanobot/config.json</span> and set at least one provider key (for example <code>providers.openrouter.apiKey</code>).</p>
+          <pre><code>mkdir -p ~/.nanobot
+
+# From the project root:
+cp ./config.example.json ~/.nanobot/config.json
+
+# Then edit ~/.nanobot/config.json and set your apiKey
+</code></pre>
+          <p class=\"hint\">After updating the config, restart the web service and refresh this page.</p>
+          <div class=\"row\">
+            <a href=\"/api/v1/health\">Check health</a>
+            <span class=\"hint\">Health includes <code>llm_configured</code>.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>"""
+        return HTMLResponse(content=html, status_code=200)
+
+    def _require_agent() -> AgentLoop:
+        if missing_llm_config or agent is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "LLM API key not configured. Create ~/.nanobot/config.json (see config.example.json) and restart the service."
+                ),
+            )
+        return agent
 
     # ── Sessions ──────────────────────────────────────────────────
 
@@ -196,6 +274,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/v1/sessions/{session_id}/messages")
     async def post_message(session_id: str, payload: MessageCreateRequest) -> dict[str, Any]:
+        agent_: AgentLoop = _require_agent()
         if not db.session_exists(session_id):
             raise HTTPException(status_code=404, detail="session not found")
 
@@ -219,7 +298,7 @@ def create_app() -> FastAPI:
                 if is_first:
                     asyncio.create_task(_auto_name_session(session_id, payload.content))
 
-                result = await agent.process_direct(
+                result = await agent_.process_direct(
                     content=payload.content,
                     channel="web",
                     chat_id=session_id,
@@ -330,6 +409,9 @@ def create_app() -> FastAPI:
 
     # ── Static files / SPA ────────────────────────────────────────
 
+    # Ensure correct content-types for PWA assets.
+    mimetypes.add_type("application/manifest+json", ".webmanifest")
+
     # New React frontend (built output)
     dist_dir = Path(__file__).parent / "static" / "dist"
     static_dir = Path(__file__).parent / "static"
@@ -337,6 +419,26 @@ def create_app() -> FastAPI:
     # Serve built React app assets if available
     if dist_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets")), name="assets")
+        if (dist_dir / "icons").exists():
+            app.mount("/icons", StaticFiles(directory=str(dist_dir / "icons")), name="icons")
+
+        @app.get("/manifest.webmanifest")
+        async def serve_webmanifest():
+            p = dist_dir / "manifest.webmanifest"
+            if p.exists():
+                return FileResponse(str(p), media_type="application/manifest+json")
+            raise HTTPException(status_code=404)
+
+        @app.get("/sw.js")
+        async def serve_service_worker():
+            p = dist_dir / "sw.js"
+            if p.exists():
+                return FileResponse(
+                    str(p),
+                    media_type="application/javascript",
+                    headers={"Cache-Control": "no-cache"},
+                )
+            raise HTTPException(status_code=404)
 
     # Legacy static files
     if static_dir.exists():
@@ -351,6 +453,8 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     async def serve_index():
+        if missing_llm_config:
+            return _setup_page()
         # Prefer new React build
         new_index = dist_dir / "index.html"
         if new_index.exists():
@@ -364,8 +468,28 @@ def create_app() -> FastAPI:
     # SPA catch-all: serve index.html for client-side routing
     @app.get("/{full_path:path}")
     async def spa_catchall(full_path: str):
-        # Skip API and static routes
-        if full_path.startswith(("api/", "static/", "assets/", "old")):
+        if missing_llm_config:
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404)
+            return _setup_page()
+        # Skip API routes
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404)
+
+        # If this path is a real file in dist/, serve it (PWA assets like workbox-*.js).
+        try:
+            dist_root = dist_dir.resolve()
+            candidate = (dist_dir / full_path).resolve()
+            if dist_root == candidate or dist_root not in candidate.parents:
+                candidate = None
+        except Exception:
+            candidate = None
+
+        if candidate and candidate.exists() and candidate.is_file():
+            return FileResponse(str(candidate))
+
+        # Skip legacy/static mounts (avoid returning index.html for missing static assets)
+        if full_path.startswith(("static/", "assets/", "icons/", "old")):
             raise HTTPException(status_code=404)
         new_index = dist_dir / "index.html"
         if new_index.exists():

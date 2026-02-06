@@ -101,11 +101,23 @@ npm run build
 cd ..
 ```
 
+Important:
+
+- Run `npm` commands inside `frontend/` only.
+- The backend does not have Node dependencies.
+
 The build output goes to `nanobot/web/static/dist/` and is served by FastAPI automatically.
 
 ### 4. Configure
 
-Create `~/.nanobot/config.json`:
+Create `~/.nanobot/config.json` (quick start: copy `config.example.json` and edit keys):
+
+```bash
+mkdir -p ~/.nanobot
+cp ./config.example.json ~/.nanobot/config.json
+```
+
+Example:
 
 ```json
 {
@@ -121,6 +133,8 @@ Create `~/.nanobot/config.json`:
   }
 }
 ```
+
+If the API key is not configured, opening the web UI will show a setup page instead of the chat UI.
 
 ### 5. Run
 

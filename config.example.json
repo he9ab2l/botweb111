@@ -1,0 +1,43 @@
+{
+  "providers": {
+    "openrouter": {
+      "apiKey": "sk-or-v1-REPLACE_ME",
+      "apiBase": "https://openrouter.ai/api/v1"
+    },
+    "anthropic": {
+      "apiKey": ""
+    },
+    "openai": {
+      "apiKey": ""
+    },
+    "deepseek": {
+      "apiKey": ""
+    },
+    "zhipu": {
+      "apiKey": ""
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "anthropic/claude-opus-4-5",
+      "workspace": "~/.nanobot/workspace",
+      "maxTokens": 8192,
+      "temperature": 0.7,
+      "maxToolIterations": 20
+    }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "apiKey": ""
+      }
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": false,
+      "token": "",
+      "allowFrom": []
+    }
+  }
+}
