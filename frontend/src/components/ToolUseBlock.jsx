@@ -8,6 +8,7 @@ import { cn, formatDuration, truncate } from '../lib/utils'
  */
 const STATUS_DOT = {
   pending:   'bg-status-pending animate-pulse-dot',
+  permission_required: 'bg-status-pending animate-pulse-dot',
   running:   'bg-status-running animate-pulse-dot',
   completed: 'bg-status-success',
   error:     'bg-status-error',
@@ -69,11 +70,26 @@ export default function ToolUseBlock({ block }) {
 
       {open && (
         <div className="mt-1 ml-3 border-l border-border-soft pl-2.5 space-y-1.5">
+          {block.status === 'permission_required' && (
+            <div className="text-[11px] text-text-muted">
+              Permission required to run this tool. Open the Permissions panel to approve.
+            </div>
+          )}
+
           {block.input && Object.keys(block.input).length > 0 && (
             <div>
               <span className="text-[10px] text-text-muted block mb-0.5">Input</span>
               <pre className="text-[11px] text-text-secondary bg-bg-secondary/35 border border-border-soft rounded p-2 overflow-x-auto max-h-48 overflow-y-auto">
                 {JSON.stringify(block.input, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {block.terminal && (
+            <div>
+              <span className="text-[10px] text-text-muted block mb-0.5">Terminal</span>
+              <pre className="text-[11px] text-text-secondary bg-bg-secondary/35 border border-border-soft rounded p-2 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
+                {block.terminal}
               </pre>
             </div>
           )}

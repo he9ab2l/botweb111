@@ -41,7 +41,7 @@ export default function ChatTimeline({ blocks, streamingText, streamingBlockId, 
       )}>
         {visibleBlocks.length === 0 && !isStreaming && (
           <div className="flex flex-col items-center justify-center h-full py-24 text-center">
-            <h2 className="text-sm text-text-secondary mb-1">nanobot</h2>
+            <h2 className="text-sm text-text-secondary mb-1">fanfan</h2>
             <p className="text-xs text-text-muted">Send a message to get started</p>
           </div>
         )}
@@ -63,9 +63,9 @@ export default function ChatTimeline({ blocks, streamingText, streamingBlockId, 
             }
             case 'thinking':
               return <ThinkingBlock key={block.id} block={block} />
-            case 'tool_use':
+            case 'tool_call':
               return <ToolUseBlock key={block.id} block={block} />
-            case 'patch':
+            case 'diff':
               return <PatchBlock key={block.id} block={block} />
             case 'error':
               return <ErrorBlock key={block.id} block={block} />

@@ -4,6 +4,105 @@ This document describes how the project is set up on the server, how to develop 
 
 It is intentionally pragmatic: minimal process, strong safety rails.
 
+## Handoff Prompt (Copy/Paste)
+
+Use this prompt when handing the project to a new engineer/agent. It is written to bias toward verification (read code + check running behavior) and to avoid irreversible operations.
+
+```text
+You are a senior full-stack execution agent taking over this repository. Your goal is to refactor the existing `nanobot` project to match the OpenCode-style agent UX/architecture and to rebrand the product to `fanfan`.
+
+Operate with a strong bias for:
+- verifying facts by reading the repo + checking the running instances
+- making the smallest observable change that moves the system toward the target
+- keeping the system runnable at every step
+
+Only ask a question when it changes the architecture meaningfully and cannot be inferred. If you must ask, ask exactly ONE question, provide a recommended default, and state what would change.
+
+## Fixed environment facts (server)
+- Repo: https://github.com/he9ab2l/botweb111
+- Directories:
+  - Work/dev: `/opt/nanobot-work`
+  - Live/prod: `/opt/nanobot-live`
+- Production:
+  - Domain: `https://nanobot.heabl.xyz/`
+  - Reverse proxy: `127.0.0.1:9936`
+  - Process manager: systemd unit `nanobot-web.service`
+- Preview/staging:
+  - Domain: `https://workweb.heabl.xyz/`
+  - Reverse proxy: `127.0.0.1:9937`
+  - Process manager: currently `nohup` uvicorn
+  - PID/log:
+    - `/opt/nanobot-work/work-uvicorn.pid`
+    - `/opt/nanobot-work/work-uvicorn.log`
+
+## Project stack (repo)
+- Backend: Python FastAPI + SSE
+- Frontend: React + Vite + Tailwind
+- DB: SQLite
+
+Critical operational constraint:
+- Frontend build output lives in `nanobot/web/static/dist/` and is gitignored.
+- Therefore deploying code without rebuilding the frontend can make the UI appear unchanged/broken.
+
+## Target end state (must converge toward)
+- Product rename: `nanobot` -> `fanfan` across naming, UI strings, prompts, logs, package/service names (can be staged, but keep a plan).
+- Execution model: `agent.run()` as a loop:
+  - generate -> if tool calls: execute tools -> continue
+  - else: final -> stop
+- Event model: unify to a small stable set (OpenCode-like):
+  - `message_delta`, `thinking`, `tool_call`, `tool_result`, `terminal_chunk`, `diff`, `final`, `error`
+  - every event carries `session_id`, `turn_id`, `step_id`, `timestamp`, monotonic `seq`
+- Transport: global SSE bus (`GET /event`) with:
+  - `connected` + heartbeat
+  - `Last-Event-ID` reconnect
+  - event persistence + replay
+- UI: three-column layout:
+  - left: sessions/projects
+  - center: turn/step/part execution timeline (foldable thinking, tool cards, diff highlight, terminal stream)
+  - right: inspector tabs (Trace / Files / Terminal / Context / Permissions)
+- Permissions: tool allow/deny/ask with a UI approval modal.
+- Optional architecture: local API server proxies the UI at `/` (supports remote UI_URL or local built assets).
+
+## Required deliverables (in order)
+1) `DESIGN.md`: protocol, DB schema, SSE bus, API routes, frontend state model, permissions flow, migration strategy
+2) Backend: SSE bus + event store/replay + session/turn/step/part + tool registry/permissions + agent loop + UI proxy
+3) Frontend: three-column UI + SSE client + timeline rendering + inspector + permissions modal + diff/terminal viewers
+4) Scripts/docs: dev/build/start + README updates + demo/self-check checklist
+
+## Mandatory workflow/safety rules
+- NEVER edit `/opt/nanobot-live` directly. Do work in `/opt/nanobot-work` and deploy via script.
+- Avoid destructive git operations (e.g. `reset --hard`, force-push) unless explicitly requested by the user.
+- Do not commit/push unless explicitly asked.
+- Never include secrets in commits (`~/.nanobot/config.json` holds runtime config).
+
+## First 30 minutes (verification checklist)
+Run these commands to establish ground truth:
+
+1) Confirm branches and dirty state:
+   - `git -C /opt/nanobot-work status`
+   - `git -C /opt/nanobot-work rev-parse --abbrev-ref HEAD`
+   - `git -C /opt/nanobot-live status`
+   - `git -C /opt/nanobot-live rev-parse --abbrev-ref HEAD`
+
+2) Confirm services are healthy:
+   - `curl -sS http://127.0.0.1:9936/api/v1/health`
+   - `curl -sS http://127.0.0.1:9937/api/v1/health`
+   - `systemctl status nanobot-web.service --no-pager -n 50`
+
+3) Confirm frontend build expectations:
+   - `ls -la /opt/nanobot-work/nanobot/web/static/dist/`
+   - `cd /opt/nanobot-work/frontend && npm ci && npm run build`
+
+## How to proceed when implementing
+- Make changes as a sequence of small, observable slices; after each slice, verify via browser and/or curl.
+- Prefer adding new parallel endpoints/types first (behind feature flags if needed), then migrating callers, then removing old paths.
+- Every response you give should state:
+  - what changed
+  - which files
+  - how to verify
+  - 1-2 concrete next commands
+```
+
 ## Current State (What Exists Today)
 
 ### Two running instances (physical isolation)

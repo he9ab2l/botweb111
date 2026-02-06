@@ -1,84 +1,56 @@
-// API helper
-const BASE = '/api/v1'
+import { createClient } from '../sdk/client'
 
-async function api(path, opts = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+// Single entry point for REST + SSE
+export const client = createClient()
+
+export const createSession = client.createSession
+export const listSessions = client.listSessions
+export const getSession = client.getSession
+export const renameSession = client.renameSession
+export const deleteSession = client.deleteSession
+
+// v2: sending a message creates a turn
+export async function sendMessage(sessionId, content) {
+  return client.createTurn(sessionId, content)
+}
+
+export const cancelRun = client.cancelRun
+
+// v1 memory endpoints are kept on the backend; expose them only if needed later.
+export async function getMemory() {
+  const res = await fetch(`/api/v1/memory`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+export async function putMemory(key, value) {
+  const res = await fetch(`/api/v1/memory`, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    ...opts,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    body: JSON.stringify({ key, value }),
   })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Unknown error' }))
-    throw new Error(err.detail || `HTTP ${res.status}`)
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+export async function deleteMemory(key) {
+  const res = await fetch(`/api/v1/memory/${encodeURIComponent(key)}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 
-export async function createSession(title = 'New Chat') {
-  return api('/sessions', { method: 'POST', body: { title } })
-}
-
-export async function listSessions() {
-  return api('/sessions')
-}
-
-export async function getSession(id) {
-  return api(`/sessions/${id}`)
-}
-
-export async function renameSession(id, title) {
-  return api(`/sessions/${id}`, { method: 'PATCH', body: { title } })
-}
-
-export async function deleteSession(id) {
-  return api(`/sessions/${id}`, { method: 'DELETE' })
-}
-
-export async function sendMessage(sessionId, content) {
-  return api(`/sessions/${sessionId}/messages`, {
-    method: 'POST',
-    body: { content },
-  })
-}
-
-export async function cancelRun(sessionId) {
-  return api(`/sessions/${sessionId}/cancel`, { method: 'POST' })
-}
-
-export async function getMemory() {
-  return api('/memory')
-}
-
-export async function putMemory(key, value) {
-  return api('/memory', { method: 'PUT', body: { key, value } })
-}
-
-export async function deleteMemory(key) {
-  return api(`/memory/${encodeURIComponent(key)}`, { method: 'DELETE' })
-}
-
 export function connectSSE(sessionId, lastEventId, onEvent, onError) {
-  let url = `${BASE}/sessions/${sessionId}/events`
-  if (lastEventId) url += `?last_event_id=${encodeURIComponent(lastEventId)}`
-
-  const es = new EventSource(url)
-
-  es.addEventListener('chat_event', (e) => {
-    try {
-      const data = JSON.parse(e.data)
-      onEvent(data, e.lastEventId || data.id)
-    } catch (err) {
-      console.error('SSE parse error:', err)
-    }
+  const since = lastEventId != null && lastEventId !== '' ? Number(lastEventId) : null
+  return client.subscribeEvents({
+    sessionId,
+    since: Number.isFinite(since) ? since : null,
+    onEvent,
+    onError,
   })
-
-  es.addEventListener('heartbeat', () => {})
-
-  es.onerror = (err) => {
-    onError?.(err)
-  }
-
-  es.onopen = () => {}
-
-  return es
 }
+
+export const listFileChanges = client.listFileChanges
+export const listTerminal = client.listTerminal
+export const listContext = client.listContext
+export const pinContext = client.pinContext
+export const unpinContext = client.unpinContext
+export const listPendingPermissions = client.listPendingPermissions
+export const resolvePermission = client.resolvePermission

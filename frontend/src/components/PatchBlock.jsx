@@ -20,7 +20,11 @@ function DiffLine({ line }) {
 export default function PatchBlock({ block }) {
   const [open, setOpen] = useState(false)
 
-  const files = block.files || []
+  const files = (() => {
+    if (Array.isArray(block.files) && block.files.length > 0) return block.files
+    if (block.diff) return [{ path: block.path || 'unknown', diff: block.diff }]
+    return []
+  })()
   if (files.length === 0) return null
 
   return (

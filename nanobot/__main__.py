@@ -1,5 +1,5 @@
 """
-Entry point for running nanobot as a module: python -m nanobot
+Entry point for running fanfan (legacy module name: nanobot): python -m nanobot
 """
 
 from nanobot.cli.commands import app

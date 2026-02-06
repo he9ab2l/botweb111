@@ -1,4 +1,4 @@
-"""CLI commands for nanobot."""
+"""CLI commands for fanfan (legacy module name: nanobot)."""
 
 import asyncio
 from pathlib import Path
@@ -10,8 +10,8 @@ from rich.table import Table
 from nanobot import __version__, __logo__
 
 app = typer.Typer(
-    name="nanobot",
-    help=f"{__logo__} nanobot - Personal AI Assistant",
+    name="fanfan",
+    help=f"{__logo__} fanfan - Execution-first agent",
     no_args_is_help=True,
 )
 
@@ -20,7 +20,7 @@ console = Console()
 
 def version_callback(value: bool):
     if value:
-        console.print(f"{__logo__} nanobot v{__version__}")
+        console.print(f"{__logo__} v{__version__}")
         raise typer.Exit()
 
 
@@ -30,7 +30,7 @@ def main(
         None, "--version", "-v", callback=version_callback, is_eager=True
     ),
 ):
-    """nanobot - Personal AI Assistant."""
+    """fanfan - Execution-first agent."""
     pass
 
 
@@ -41,7 +41,7 @@ def main(
 
 @app.command()
 def onboard():
-    """Initialize nanobot configuration and workspace."""
+    """Initialize fanfan configuration and workspace."""
     from nanobot.config.loader import get_config_path, save_config
     from nanobot.config.schema import Config
     from nanobot.utils.helpers import get_workspace_path
@@ -65,11 +65,11 @@ def onboard():
     # Create default bootstrap files
     _create_workspace_templates(workspace)
     
-    console.print(f"\n{__logo__} nanobot is ready!")
+    console.print(f"\n{__logo__} fanfan is ready!")
     console.print("\nNext steps:")
     console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
-    console.print("  2. Chat: [cyan]nanobot agent -m \"Hello!\"[/cyan]")
+    console.print("  2. Chat: [cyan]fanfan agent -m \"Hello!\"[/cyan]")
     console.print("\n[dim]Want Telegram notifications? Configure channels.telegram in ~/.nanobot/config.json[/dim]")
 
 
@@ -91,7 +91,7 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 """,
         "SOUL.md": """# Soul
 
-I am nanobot, a lightweight AI assistant.
+I am fanfan, an execution-first AI agent.
 
 ## Personality
 
@@ -157,7 +157,7 @@ def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
-    """Start the nanobot gateway."""
+    """Start the fanfan gateway."""
     from nanobot.config.loader import load_config, get_data_dir
     from nanobot.bus.queue import MessageBus
     from nanobot.providers.litellm_provider import LiteLLMProvider
@@ -171,7 +171,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
     
-    console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
+    console.print(f"{__logo__} Starting fanfan gateway on port {port}...")
     
     config = load_config()
     
@@ -281,15 +281,15 @@ def gateway(
 
 @app.command()
 def web(
-    port: int = typer.Option(8080, "--port", "-p", help="Web server port"),
+    port: int = typer.Option(4096, "--port", "-p", help="Web server port"),
     host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host to bind to"),
     open_browser: bool = typer.Option(False, "--open", "-o", help="Open browser automatically"),
 ):
-    """Start the nanobot web UI server."""
+    """Start the fanfan web UI server."""
     import uvicorn
     from nanobot.web.app import create_app
     
-    console.print(f"{__logo__} Starting nanobot web UI on http://{host}:{port}")
+    console.print(f"{__logo__} Starting fanfan web UI on http://{host}:{port}")
     
     app = create_app()
     
@@ -581,14 +581,14 @@ def cron_run(
 
 @app.command()
 def status():
-    """Show nanobot status."""
+    """Show fanfan status."""
     from nanobot.config.loader import load_config, get_config_path
 
     config_path = get_config_path()
     config = load_config()
     workspace = config.workspace_path
 
-    console.print(f"{__logo__} nanobot Status\n")
+    console.print(f"{__logo__} fanfan Status\n")
 
     console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
     console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")

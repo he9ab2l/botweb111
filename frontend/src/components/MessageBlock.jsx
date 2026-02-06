@@ -135,7 +135,7 @@ export default function MessageBlock({ block, isStreaming, streamingText, viewMo
           <MessageContent className="prose text-[14px] sm:text-[13px] text-text-primary leading-[1.5]">
             <div className="flex items-center gap-1.5 mb-1">
               <span className="text-[10px] tracking-wide uppercase text-text-muted">
-                {isUser ? 'You' : 'nanobot'}
+                {isUser ? 'You' : 'fanfan'}
               </span>
             </div>
 

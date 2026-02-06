@@ -1,0 +1,135 @@
+import type { EventEnvelope, SessionRecord } from './types'
+
+type FetchLike = typeof fetch
+
+export type Client = {
+  baseUrl: string
+  createSession: (title?: string) => Promise<SessionRecord>
+  listSessions: () => Promise<SessionRecord[]>
+  getSession: (id: string) => Promise<any>
+  renameSession: (id: string, title: string) => Promise<any>
+  deleteSession: (id: string) => Promise<any>
+  createTurn: (sessionId: string, content: string) => Promise<any>
+  cancelRun: (sessionId: string) => Promise<any>
+
+  getEvents: (sessionId: string, opts?: { since?: number; since_seq?: number }) => Promise<EventEnvelope[]>
+  subscribeEvents: (opts: {
+    sessionId: string
+    since?: number | null
+    onEvent: (evt: EventEnvelope, lastEventId: string | null) => void
+    onConnected?: (evt: EventEnvelope) => void
+    onHeartbeat?: () => void
+    onError?: (err: any) => void
+  }) => EventSource
+
+  listFileChanges: (sessionId: string) => Promise<any[]>
+  listTerminal: (sessionId: string) => Promise<any[]>
+  listContext: (sessionId: string) => Promise<any[]>
+  pinContext: (sessionId: string, contextId: string) => Promise<any>
+  unpinContext: (sessionId: string, contextId: string) => Promise<any>
+
+  listPendingPermissions: (sessionId: string) => Promise<any[]>
+  resolvePermission: (requestId: string, status: 'approved' | 'denied', scope: 'once' | 'session' | 'always') => Promise<any>
+}
+
+export function createClient(opts: { baseUrl?: string; fetch?: FetchLike } = {}): Client {
+  const baseUrl = opts.baseUrl || window.location.origin
+  const f = opts.fetch || fetch
+
+  const apiBase = `${baseUrl}/api/v2`
+
+  async function api(path: string, init: RequestInit & { body?: any } = {}) {
+    const res = await f(`${apiBase}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
+      ...init,
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(err.detail || `HTTP ${res.status}`)
+    }
+    return res.json()
+  }
+
+  function subscribeEvents({
+    sessionId,
+    since,
+    onEvent,
+    onConnected,
+    onHeartbeat,
+    onError,
+  }: {
+    sessionId: string
+    since?: number | null
+    onEvent: (evt: EventEnvelope, lastEventId: string | null) => void
+    onConnected?: (evt: EventEnvelope) => void
+    onHeartbeat?: () => void
+    onError?: (err: any) => void
+  }): EventSource {
+    let url = `${baseUrl}/event?session_id=${encodeURIComponent(sessionId)}`
+    if (since != null) url += `&since=${encodeURIComponent(String(since))}`
+
+    const es = new EventSource(url)
+
+    es.addEventListener('connected', (e: any) => {
+      try {
+        const data = JSON.parse(e.data)
+        onConnected?.(data)
+      } catch {}
+    })
+
+    es.addEventListener('heartbeat', () => {
+      onHeartbeat?.()
+    })
+
+    es.addEventListener('event', (e: any) => {
+      try {
+        const data = JSON.parse(e.data)
+        onEvent(data, e.lastEventId || data.id || null)
+      } catch (err) {
+        console.error('SSE parse error:', err)
+      }
+    })
+
+    es.onerror = (err) => {
+      onError?.(err)
+    }
+
+    return es
+  }
+
+  return {
+    baseUrl,
+    createSession: (title = 'New Chat') => api('/sessions', { method: 'POST', body: { title } }),
+    listSessions: () => api('/sessions'),
+    getSession: (id) => api(`/sessions/${encodeURIComponent(id)}`),
+    renameSession: (id, title) => api(`/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: { title } }),
+    deleteSession: (id) => api(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    createTurn: (sessionId, content) =>
+      api(`/sessions/${encodeURIComponent(sessionId)}/turns`, { method: 'POST', body: { content } }),
+    cancelRun: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' }),
+
+    getEvents: (sessionId, opts2 = {}) => {
+      const q = new URLSearchParams()
+      if (opts2.since != null) q.set('since', String(opts2.since))
+      if (opts2.since_seq != null) q.set('since_seq', String(opts2.since_seq))
+      const qs = q.toString()
+      return api(`/sessions/${encodeURIComponent(sessionId)}/events${qs ? `?${qs}` : ''}`)
+    },
+
+    subscribeEvents,
+
+    listFileChanges: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/file_changes`),
+    listTerminal: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/terminal`),
+    listContext: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/context`),
+    pinContext: (sessionId, contextId) =>
+      api(`/sessions/${encodeURIComponent(sessionId)}/context/pin`, { method: 'POST', body: { context_id: contextId } }),
+    unpinContext: (sessionId, contextId) =>
+      api(`/sessions/${encodeURIComponent(sessionId)}/context/unpin`, { method: 'POST', body: { context_id: contextId } }),
+
+    listPendingPermissions: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/permissions/pending`),
+    resolvePermission: (requestId, status, scope) =>
+      api(`/permissions/${encodeURIComponent(requestId)}/resolve`, { method: 'POST', body: { status, scope } }),
+  }
+}
+

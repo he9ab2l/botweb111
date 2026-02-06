@@ -13,9 +13,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        name: 'nanobot',
-        short_name: 'nanobot',
-        description: 'A self-hosted AI chat agent with a web UI',
+        name: 'fanfan',
+        short_name: 'fanfan',
+        description: 'A self-hosted AI agent with an OpenCode-style web UI',
         start_url: '/',
         scope: '/',
         display: 'standalone',
@@ -56,9 +56,13 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: 3000,
+    port: 4444,
+    hmr: {
+      port: 4444,
+      clientPort: 4444,
+    },
     proxy: {
-      '/api': 'http://127.0.0.1:9936',
+      '/api': 'http://127.0.0.1:4096',
     },
   },
 })

@@ -2,32 +2,53 @@ import { useEffect, useRef, useCallback, useReducer } from 'react'
 import { connectSSE } from '../lib/api'
 
 /**
- * Event types from the backend protocol.
- * Each event: { type, run_id, ts, step, payload, session_id }
+ * fanfan v2 event protocol.
+ * SSE envelope: { id, seq, ts, type, session_id, turn_id, step_id, payload }
  */
 
 const initialState = {
-  blocks: [],         // timeline blocks
-  streamingText: '',  // current streaming text accumulator
-  streamingBlockId: null,
-  lastAssistantBlockId: null,
+  blocks: [],
+  streamingText: '',
+  streamingMessageId: null,
+  streamingRole: null,
+
   thinkingText: '',
-  thinkingBlockId: null,
-  thinkingStart: null,
-  pendingThinkingDurationMs: null,
-  runId: null,
-  status: 'idle',     // idle | running | error
+  thinkingStartTs: null,
+
+  status: 'idle', // idle | running | error
   lastEventId: null,
   connectionStatus: 'disconnected',
+
   usage: null,
-  stopReason: null,
-  toolCalls: [],      // [{tool_call_id, tool_name, status, duration_ms, input, output, error}]
+  toolCalls: [], // [{tool_call_id, tool_name, status, duration_ms, input, output, error, terminal}]
+
+  pendingPermission: null, // { requestId, tool_call_id, tool_name, input }
+}
+
+function flushStreamingAssistant(state, ts) {
+  if (!state.streamingMessageId || !state.streamingText || state.streamingRole !== 'assistant') return state
+
+  return {
+    ...state,
+    blocks: [
+      ...state.blocks,
+      {
+        id: state.streamingMessageId,
+        type: 'assistant',
+        text: state.streamingText,
+        ts,
+      },
+    ],
+    streamingText: '',
+    streamingMessageId: null,
+    streamingRole: null,
+  }
 }
 
 function reducer(state, action) {
   switch (action.type) {
     case 'RESET':
-      return { ...initialState, blocks: [], connectionStatus: state.connectionStatus }
+      return { ...initialState, connectionStatus: state.connectionStatus }
 
     case 'SET_CONNECTION':
       return { ...state, connectionStatus: action.status }
@@ -35,243 +56,217 @@ function reducer(state, action) {
     case 'SET_LAST_EVENT_ID':
       return { ...state, lastEventId: action.id }
 
-    // Legacy user event (from old protocol)
-    case 'USER_MESSAGE':
-      return {
-        ...state,
-        blocks: [...state.blocks, {
-          id: `user_${Date.now()}`,
-          type: 'user',
-          text: action.text,
-          ts: action.ts,
-        }],
-      }
+    case 'CLEAR_PENDING_PERMISSION':
+      return { ...state, pendingPermission: null }
 
-    case 'STATUS': {
-      const s = action.payload.status
-      return {
-        ...state,
-        status: s === 'started' ? 'running' : state.status,
-        runId: action.run_id || state.runId,
-      }
-    }
+    case 'APPLY_EVENT': {
+      const evt = action.event
+      const payload = evt.payload || {}
+      const ts = evt.ts || Date.now() / 1000
 
-    case 'CONTENT_BLOCK_START': {
-      const { block_id, block_type } = action.payload
-      if (block_type === 'text') {
-        return { ...state, streamingBlockId: block_id, streamingText: '' }
-      }
-      return state
-    }
+      switch (evt.type) {
+        case 'message_delta': {
+          const role = payload.role
+          const messageId = payload.message_id || `msg_${Date.now()}`
+          const delta = payload.delta || ''
 
-    case 'CONTENT_BLOCK_DELTA': {
-      const { block_id, delta } = action.payload
-      if (block_id === state.streamingBlockId) {
-        return { ...state, streamingText: state.streamingText + delta }
-      }
-      return state
-    }
+          if (role === 'user') {
+            return {
+              ...state,
+              status: 'running',
+              blocks: [...state.blocks, { id: messageId, type: 'user', text: delta, ts }],
+            }
+          }
 
-    case 'CONTENT_BLOCK_STOP': {
-      const { block_id } = action.payload
-      if (block_id === state.streamingBlockId && state.streamingText) {
-        return {
-          ...state,
-          blocks: [...state.blocks, {
-            id: block_id,
-            type: 'assistant',
-            text: state.streamingText,
-            ts: action.ts,
-            thinking_ms: state.pendingThinkingDurationMs || null,
-          }],
-          streamingText: '',
-          streamingBlockId: null,
-          lastAssistantBlockId: block_id,
-          pendingThinkingDurationMs: null,
+          // assistant streaming
+          let next = state
+          if (next.streamingMessageId && next.streamingMessageId !== messageId) {
+            next = flushStreamingAssistant(next, ts)
+          }
+          if (!next.streamingMessageId) {
+            next = { ...next, streamingMessageId: messageId, streamingText: '', streamingRole: 'assistant' }
+          }
+          return {
+            ...next,
+            status: 'running',
+            streamingText: next.streamingText + delta,
+          }
         }
-      }
-      return { ...state, streamingBlockId: null }
-    }
 
-    case 'THINKING': {
-      const { status, text, duration_ms } = action.payload
-      if (status === 'start') {
-        return {
-          ...state,
-          thinkingBlockId: `thinking_${Date.now()}`,
-          thinkingText: text || '',
-          thinkingStart: action.ts,
+        case 'thinking': {
+          const status = payload.status
+          if (status === 'start') {
+            return { ...state, status: 'running', thinkingText: '', thinkingStartTs: ts }
+          }
+          if (status === 'delta') {
+            return { ...state, status: 'running', thinkingText: state.thinkingText + (payload.text || '') }
+          }
+          if (status === 'end') {
+            const next = flushStreamingAssistant(state, ts)
+            const durationMs = payload.duration_ms || null
+            return {
+              ...next,
+              status: 'running',
+              blocks: [
+                ...next.blocks,
+                {
+                  id: `thinking_${Date.now()}`,
+                  type: 'thinking',
+                  text: state.thinkingText,
+                  duration_ms: durationMs,
+                  ts: state.thinkingStartTs || ts,
+                },
+              ],
+              thinkingText: '',
+              thinkingStartTs: null,
+            }
+          }
+          return state
         }
-      }
-      if (status === 'end' && state.thinkingBlockId) {
-        // Attach thinking duration to the most recent assistant message if present.
-        // If the assistant message hasn't been created yet, stash it for later.
-        const thinkingMs = duration_ms || 0
-        let blocks = state.blocks
-        if (state.lastAssistantBlockId) {
-          blocks = blocks.map(b =>
-            b.id === state.lastAssistantBlockId && b.type === 'assistant'
-              ? { ...b, thinking_ms: thinkingMs }
+
+        case 'tool_call': {
+          let next = flushStreamingAssistant(state, ts)
+
+          const tool_call_id = payload.tool_call_id
+          const tool_name = payload.tool_name
+          const toolStatus = payload.status || 'running'
+          const input = payload.input || {}
+
+          // Upsert tool call record
+          const existingIdx = next.toolCalls.findIndex(tc => tc.tool_call_id === tool_call_id)
+          const tc = {
+            tool_call_id,
+            tool_name,
+            status: toolStatus,
+            input,
+            output: existingIdx >= 0 ? next.toolCalls[existingIdx].output : null,
+            error: existingIdx >= 0 ? next.toolCalls[existingIdx].error : null,
+            duration_ms: existingIdx >= 0 ? next.toolCalls[existingIdx].duration_ms : 0,
+            terminal: existingIdx >= 0 ? next.toolCalls[existingIdx].terminal : '',
+            ts,
+          }
+          const toolCalls = [...next.toolCalls]
+          if (existingIdx >= 0) toolCalls[existingIdx] = tc
+          else toolCalls.push(tc)
+
+          // Upsert block
+          const blocks = existingIdx >= 0
+            ? next.blocks.map(b => (b.id === tool_call_id ? { ...b, ...tc, type: 'tool_call' } : b))
+            : [...next.blocks, { id: tool_call_id, type: 'tool_call', ...tc }]
+
+          let pendingPermission = next.pendingPermission
+          if (toolStatus === 'permission_required' && payload.permission_request_id) {
+            pendingPermission = {
+              requestId: payload.permission_request_id,
+              tool_call_id,
+              tool_name,
+              input,
+            }
+          }
+
+          return {
+            ...next,
+            status: 'running',
+            toolCalls,
+            blocks,
+            pendingPermission,
+          }
+        }
+
+        case 'terminal_chunk': {
+          const tool_call_id = payload.tool_call_id
+          const text = payload.text || ''
+          const stream = payload.stream || 'stdout'
+          const prefix = stream === 'stderr' ? '' : ''
+          const chunk = prefix + text
+
+          const toolCalls = nextToolCallsWith(nextToolCallsWithTerminal(state.toolCalls, tool_call_id, chunk))
+          const blocks = state.blocks.map(b =>
+            b.id === tool_call_id && b.type === 'tool_call'
+              ? { ...b, terminal: (b.terminal || '') + chunk }
               : b
           )
+          return { ...state, status: 'running', toolCalls, blocks }
         }
-        return {
-          ...state,
-          blocks: [...blocks, {
-            id: state.thinkingBlockId,
-            type: 'thinking',
-            text: state.thinkingText,
-            duration_ms: thinkingMs,
-            ts: state.thinkingStart || action.ts,
-          }],
-          thinkingBlockId: null,
-          thinkingText: '',
-          thinkingStart: null,
-          pendingThinkingDurationMs: state.lastAssistantBlockId ? null : thinkingMs,
+
+        case 'tool_result': {
+          let next = flushStreamingAssistant(state, ts)
+          const tool_call_id = payload.tool_call_id
+          const ok = !!payload.ok
+          const output = payload.output || ''
+          const error = payload.error || ''
+          const duration_ms = payload.duration_ms || 0
+
+          const toolCalls = next.toolCalls.map(tc =>
+            tc.tool_call_id === tool_call_id
+              ? { ...tc, status: ok ? 'completed' : 'error', output: ok ? output : tc.output, error: ok ? tc.error : (error || tc.error), duration_ms }
+              : tc
+          )
+
+          const blocks = next.blocks.map(b =>
+            b.id === tool_call_id && b.type === 'tool_call'
+              ? { ...b, status: ok ? 'completed' : 'error', output: ok ? output : b.output, error: ok ? b.error : error, duration_ms }
+              : b
+          )
+
+          return { ...next, status: 'running', toolCalls, blocks }
         }
-      }
-      return state
-    }
 
-    case 'TOOL_USE': {
-      const { tool_call_id, tool_name, input, status: toolStatus } = action.payload
-      const tc = {
-        tool_call_id,
-        tool_name,
-        status: toolStatus,
-        input: input || {},
-        output: null,
-        error: null,
-        duration_ms: 0,
-        ts: action.ts,
-      }
-      // Also add as a timeline block
-      return {
-        ...state,
-        toolCalls: [...state.toolCalls, tc],
-        blocks: [...state.blocks, {
-          id: tool_call_id,
-          type: 'tool_use',
-          tool_call_id,
-          tool_name,
-          input: input || {},
-          status: toolStatus,
-          ts: action.ts,
-        }],
-      }
-    }
+        case 'diff': {
+          const next = flushStreamingAssistant(state, ts)
+          return {
+            ...next,
+            status: 'running',
+            blocks: [
+              ...next.blocks,
+              {
+                id: `diff_${payload.tool_call_id || 'x'}_${Date.now()}`,
+                type: 'diff',
+                tool_call_id: payload.tool_call_id,
+                path: payload.path,
+                diff: payload.diff,
+                ts,
+              },
+            ],
+          }
+        }
 
-    case 'TOOL_RESULT': {
-      const { tool_call_id, output, duration_ms } = action.payload
-      const updatedCalls = state.toolCalls.map(tc =>
-        tc.tool_call_id === tool_call_id
-          ? { ...tc, status: 'completed', output, duration_ms }
-          : tc
-      )
-      const updatedBlocks = state.blocks.map(b =>
-        b.id === tool_call_id
-          ? { ...b, status: 'completed', output, duration_ms }
-          : b
-      )
-      return { ...state, toolCalls: updatedCalls, blocks: updatedBlocks }
-    }
+        case 'final': {
+          let next = flushStreamingAssistant(state, ts)
+          const text = payload.text || ''
+          if (text && !next.blocks.some(b => b.type === 'assistant' && b.id === payload.message_id)) {
+            next = {
+              ...next,
+              blocks: [...next.blocks, { id: payload.message_id || `assistant_${Date.now()}`, type: 'assistant', text, ts }],
+            }
+          }
+          return {
+            ...next,
+            status: 'idle',
+            usage: payload.usage || next.usage,
+          }
+        }
 
-    case 'TOOL_ERROR': {
-      const { tool_call_id, error, duration_ms } = action.payload
-      const updatedCalls = state.toolCalls.map(tc =>
-        tc.tool_call_id === tool_call_id
-          ? { ...tc, status: 'error', error, duration_ms }
-          : tc
-      )
-      const updatedBlocks = state.blocks.map(b =>
-        b.id === tool_call_id
-          ? { ...b, status: 'error', error, duration_ms }
-          : b
-      )
-      return { ...state, toolCalls: updatedCalls, blocks: updatedBlocks }
-    }
+        case 'error': {
+          const next = flushStreamingAssistant(state, ts)
+          return {
+            ...next,
+            status: 'error',
+            blocks: [
+              ...next.blocks,
+              {
+                id: `error_${Date.now()}`,
+                type: 'error',
+                text: payload.message || 'Unknown error',
+                code: payload.code,
+                ts,
+              },
+            ],
+          }
+        }
 
-    case 'PATCH': {
-      const { tool_call_id, files } = action.payload
-      return {
-        ...state,
-        blocks: [...state.blocks, {
-          id: `patch_${tool_call_id}_${Date.now()}`,
-          type: 'patch',
-          tool_call_id,
-          files: files || [],
-          ts: action.ts,
-        }],
-      }
-    }
-
-    case 'MESSAGE_DELTA': {
-      return {
-        ...state,
-        stopReason: action.payload.stop_reason,
-        usage: action.payload.usage || state.usage,
-      }
-    }
-
-    case 'FINAL_DONE': {
-      // Flush any remaining streaming text
-      let blocks = state.blocks
-      if (state.streamingText) {
-        const id = state.streamingBlockId || `text_${Date.now()}`
-        blocks = [...blocks, {
-          id,
-          type: 'assistant',
-          text: state.streamingText,
-          ts: action.ts,
-          thinking_ms: state.pendingThinkingDurationMs || null,
-        }]
-      }
-      return {
-        ...state,
-        blocks,
-        streamingText: '',
-        streamingBlockId: null,
-        lastAssistantBlockId: state.streamingText ? (state.streamingBlockId || state.lastAssistantBlockId) : state.lastAssistantBlockId,
-        pendingThinkingDurationMs: state.streamingText ? null : state.pendingThinkingDurationMs,
-        status: 'idle',
-      }
-    }
-
-    case 'ERROR': {
-      return {
-        ...state,
-        status: 'error',
-        blocks: [...state.blocks, {
-          id: `error_${Date.now()}`,
-          type: 'error',
-          text: action.payload.message || 'Unknown error',
-          code: action.payload.code,
-          ts: action.ts,
-        }],
-      }
-    }
-
-    // Legacy final events (backward compat with old protocol)
-    case 'LEGACY_FINAL_STREAMING': {
-      return { ...state, streamingText: state.streamingText + (action.delta || '') }
-    }
-    case 'LEGACY_FINAL_DONE': {
-      const text = action.text || state.streamingText
-      let blocks = state.blocks
-      if (text) {
-        blocks = [...blocks, {
-          id: `assistant_${Date.now()}`,
-          type: 'assistant',
-          text,
-          ts: action.ts,
-        }]
-      }
-      return {
-        ...state,
-        blocks,
-        streamingText: '',
-        streamingBlockId: null,
-        status: 'idle',
+        default:
+          return state
       }
     }
 
@@ -280,80 +275,32 @@ function reducer(state, action) {
   }
 }
 
+function nextToolCallsWithTerminal(toolCalls, tool_call_id, chunk) {
+  return toolCalls.map(tc =>
+    tc.tool_call_id === tool_call_id ? { ...tc, terminal: (tc.terminal || '') + chunk } : tc
+  )
+}
+
+function nextToolCallsWith(toolCalls) {
+  return toolCalls
+}
+
 export function useEventStream(sessionId) {
   const [state, dispatch] = useReducer(reducer, initialState)
   const esRef = useRef(null)
   const lastIdRef = useRef(null)
   const reconnectRef = useRef(0)
 
-  const handleEvent = useCallback((data, eventId) => {
+  const handleEvent = useCallback((event, eventId) => {
     if (eventId) {
       lastIdRef.current = eventId
       dispatch({ type: 'SET_LAST_EVENT_ID', id: eventId })
     }
-
-    const evtType = data.type
-    const payload = data.payload || {}
-    const ts = data.ts || data.timestamp || Date.now() / 1000
-
-    // New structured protocol events
-    switch (evtType) {
-      case 'status':
-        dispatch({ type: 'STATUS', payload, run_id: data.run_id, ts })
-        break
-      case 'content_block_start':
-        dispatch({ type: 'CONTENT_BLOCK_START', payload, ts })
-        break
-      case 'content_block_delta':
-        dispatch({ type: 'CONTENT_BLOCK_DELTA', payload, ts })
-        break
-      case 'content_block_stop':
-        dispatch({ type: 'CONTENT_BLOCK_STOP', payload, ts })
-        break
-      case 'thinking':
-        dispatch({ type: 'THINKING', payload, ts })
-        break
-      case 'tool_use':
-        dispatch({ type: 'TOOL_USE', payload, ts })
-        break
-      case 'tool_result':
-        dispatch({ type: 'TOOL_RESULT', payload, ts })
-        break
-      case 'tool_error':
-        dispatch({ type: 'TOOL_ERROR', payload, ts })
-        break
-      case 'patch':
-        dispatch({ type: 'PATCH', payload, ts })
-        break
-      case 'message_delta':
-        dispatch({ type: 'MESSAGE_DELTA', payload, ts })
-        break
-      case 'final_done':
-        dispatch({ type: 'FINAL_DONE', payload, ts })
-        break
-      case 'error':
-        dispatch({ type: 'ERROR', payload, ts })
-        break
-
-      // Legacy events (backward compat)
-      case 'user':
-        dispatch({ type: 'USER_MESSAGE', text: payload.text, ts })
-        break
-      case 'final':
-        if (data.status === 'streaming') {
-          dispatch({ type: 'LEGACY_FINAL_STREAMING', delta: payload.delta })
-        } else if (data.status === 'done') {
-          dispatch({ type: 'LEGACY_FINAL_DONE', text: payload.text, ts })
-        }
-        break
-      default:
-        console.log('Unknown event type:', evtType, data)
-    }
+    dispatch({ type: 'APPLY_EVENT', event })
   }, [])
 
   const connect = useCallback(() => {
     if (!sessionId) return
-
     dispatch({ type: 'SET_CONNECTION', status: 'connecting' })
 
     const es = connectSSE(
@@ -366,7 +313,6 @@ export function useEventStream(sessionId) {
       },
       () => {
         dispatch({ type: 'SET_CONNECTION', status: 'error' })
-        // Auto-reconnect
         if (reconnectRef.current < 5) {
           reconnectRef.current++
           const delay = Math.min(1000 * Math.pow(2, reconnectRef.current), 30000)
@@ -388,9 +334,7 @@ export function useEventStream(sessionId) {
       esRef.current = null
     }
 
-    if (sessionId) {
-      connect()
-    }
+    if (sessionId) connect()
 
     return () => {
       if (esRef.current) {
@@ -400,5 +344,10 @@ export function useEventStream(sessionId) {
     }
   }, [sessionId, connect])
 
-  return state
+  const clearPendingPermission = useCallback(() => {
+    dispatch({ type: 'CLEAR_PENDING_PERMISSION' })
+  }, [])
+
+  return { ...state, clearPendingPermission }
 }
+

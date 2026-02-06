@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useEventStream } from './hooks/useEventStream'
 import { useMediaQuery } from './hooks/useMediaQuery'
-import { createSession, listSessions, deleteSession, getSession, renameSession, sendMessage, cancelRun } from './lib/api'
+import { createSession, listSessions, deleteSession, getSession, renameSession, sendMessage, cancelRun, resolvePermission } from './lib/api'
 import { cn } from './lib/utils'
 import Sidebar from './components/Sidebar'
 import ChatTimeline from './components/ChatTimeline'
 import InputArea from './components/InputArea'
 import Inspector from './components/Inspector'
+import PermissionModal from './components/PermissionModal'
 
 export default function App() {
   const isMobile = useMediaQuery('(max-width: 768px)')
@@ -352,7 +353,7 @@ export default function App() {
         <ChatTimeline
           blocks={allBlocks}
           streamingText={eventState.streamingText}
-          streamingBlockId={eventState.streamingBlockId}
+          streamingBlockId={eventState.streamingMessageId}
           viewMode={viewMode}
           status={isRunning ? 'running' : eventState.status}
         />
@@ -393,14 +394,13 @@ export default function App() {
             className={cn(
               isMobile
                 ? 'fixed inset-y-0 right-0 z-50 w-[min(22rem,85vw)] shadow-xl'
-                : 'w-72 shrink-0'
+                : 'w-80 shrink-0'
             )}
           >
             <Inspector
+              sessionId={activeSessionId}
               toolCalls={eventState.toolCalls}
               usage={eventState.usage}
-              stopReason={eventState.stopReason}
-              runId={eventState.runId}
               connectionStatus={eventState.connectionStatus}
               status={eventState.status}
               blocks={allBlocks}
@@ -408,6 +408,21 @@ export default function App() {
           </div>
         </>
       )}
+
+      <PermissionModal
+        request={eventState.pendingPermission}
+        onApprove={async (scope) => {
+          if (!eventState.pendingPermission) return
+          await resolvePermission(eventState.pendingPermission.requestId, 'approved', scope)
+          eventState.clearPendingPermission()
+        }}
+        onDeny={async () => {
+          if (!eventState.pendingPermission) return
+          await resolvePermission(eventState.pendingPermission.requestId, 'denied', 'once')
+          eventState.clearPendingPermission()
+        }}
+        onClose={() => eventState.clearPendingPermission()}
+      />
     </div>
   )
 }

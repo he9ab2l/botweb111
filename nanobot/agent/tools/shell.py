@@ -14,12 +14,14 @@ class ExecTool(Tool):
     
     def __init__(
         self,
+        tool_name: str = "exec",
         timeout: int = 60,
         working_dir: str | None = None,
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
     ):
+        self._tool_name = tool_name
         self.timeout = timeout
         self.working_dir = working_dir
         self.deny_patterns = deny_patterns or [
@@ -37,7 +39,7 @@ class ExecTool(Tool):
     
     @property
     def name(self) -> str:
-        return "exec"
+        return self._tool_name
     
     @property
     def description(self) -> str:
@@ -67,35 +69,65 @@ class ExecTool(Tool):
             return guard_error
         
         try:
+            stream_cb = kwargs.get("_stream_cb")
+
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
             )
-            
+
+            out_parts: list[str] = []
+            err_parts: list[str] = []
+
+            async def _emit(stream_name: str, text: str) -> None:
+                if not stream_cb:
+                    return
+                try:
+                    res = stream_cb(stream=stream_name, text=text)
+                    if asyncio.iscoroutine(res):
+                        await res
+                except Exception:
+                    # Streaming is best-effort; the command result must still complete.
+                    return
+
+            async def _read_pipe(pipe: asyncio.StreamReader | None, stream_name: str) -> None:
+                if pipe is None:
+                    return
+                while True:
+                    chunk = await pipe.read(1024)
+                    if not chunk:
+                        break
+                    text = chunk.decode("utf-8", errors="replace")
+                    if stream_name == "stdout":
+                        out_parts.append(text)
+                    else:
+                        err_parts.append(text)
+                    await _emit(stream_name, text)
+
+            t_out = asyncio.create_task(_read_pipe(process.stdout, "stdout"))
+            t_err = asyncio.create_task(_read_pipe(process.stderr, "stderr"))
+
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=self.timeout
-                )
+                await asyncio.wait_for(process.wait(), timeout=self.timeout)
             except asyncio.TimeoutError:
                 process.kill()
+                await _emit("stderr", f"\n[timeout] killed after {self.timeout}s\n")
                 return f"Error: Command timed out after {self.timeout} seconds"
-            
-            output_parts = []
-            
-            if stdout:
-                output_parts.append(stdout.decode("utf-8", errors="replace"))
-            
-            if stderr:
-                stderr_text = stderr.decode("utf-8", errors="replace")
-                if stderr_text.strip():
-                    output_parts.append(f"STDERR:\n{stderr_text}")
-            
+            finally:
+                # Drain pipes quickly
+                await asyncio.gather(t_out, t_err, return_exceptions=True)
+
+            output_parts: list[str] = []
+            if out_parts:
+                output_parts.append("".join(out_parts))
+            if err_parts and "".join(err_parts).strip():
+                output_parts.append("STDERR:\n" + "".join(err_parts))
+
             if process.returncode != 0:
                 output_parts.append(f"\nExit code: {process.returncode}")
-            
+
             result = "\n".join(output_parts) if output_parts else "(no output)"
             
             # Truncate very long output

@@ -20,11 +20,11 @@ export default function TraceDrawer({ details }) {
       if (d.type === 'thinking') {
         thinkingCount++
         thinkingMs += d.duration_ms || 0
-      } else if (d.type === 'tool_use') {
+      } else if (d.type === 'tool_call') {
         toolCount++
         toolMs += d.duration_ms || 0
         if (d.status === 'error') errorCount++
-      } else if (d.type === 'patch') {
+      } else if (d.type === 'diff') {
         patchCount++
       }
     }
@@ -60,8 +60,8 @@ export default function TraceDrawer({ details }) {
         <div className="mt-1 space-y-1 pl-2 border-l border-border-soft ml-2">
           {details.map(d => {
             if (d.type === 'thinking') return <ThinkingBlock key={d.id} block={d} />
-            if (d.type === 'tool_use') return <ToolUseBlock key={d.id} block={d} />
-            if (d.type === 'patch') return <PatchBlock key={d.id} block={d} />
+            if (d.type === 'tool_call') return <ToolUseBlock key={d.id} block={d} />
+            if (d.type === 'diff') return <PatchBlock key={d.id} block={d} />
             return null
           })}
         </div>
