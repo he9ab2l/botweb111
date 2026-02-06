@@ -6,6 +6,8 @@ A self-hosted AI chat agent with a web UI. Python (FastAPI + SSE) backend with a
 
 - **Streaming responses** via Server-Sent Events (SSE)
 - **Dual mode UI** — Chat mode (clean conversation view) and Agent mode (full execution trace)
+- **Mobile-friendly layout** — drawer sidebar/inspector with safe-area padding
+- **PWA support** — installable web app (manifest + service worker)
 - **Tool execution** — the agent can run tools, apply patches, and show thinking steps
 - **Session persistence** — conversations are stored in SQLite and survive restarts
 - **Auto session naming** — sessions are automatically titled by the LLM

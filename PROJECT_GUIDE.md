@@ -88,6 +88,11 @@ curl -sS http://127.0.0.1:9937/api/v1/health
 
 The web server serves built frontend assets from `nanobot/web/static/dist/`.
 
+PWA note:
+
+- The PWA assets are served from the site root (e.g. `/manifest.webmanifest`, `/sw.js`, `/icons/*`).
+- After updating the frontend, rebuild so these files are refreshed.
+
 ```bash
 cd /opt/nanobot-work/frontend
 npm install
