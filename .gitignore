@@ -31,6 +31,10 @@ data/
 *.db-wal
 *.db-shm
 
+# Local process artifacts
+*.log
+*.pid
+
 # IDE / OS
 .DS_Store
 .idea/
