@@ -1,0 +1,2 @@
+# Ignore known false-positive: config.example.json contains placeholder values (not real secrets).
+c57cf02e182166397ad9cec7373916ab0c19ed36:config.example.json:generic-api-key:4
