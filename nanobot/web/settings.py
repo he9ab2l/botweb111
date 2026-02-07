@@ -1,7 +1,7 @@
 """Web server settings for fanfan (OpenCode-style WebUI server).
 
-This settings module is intentionally separate from ~/.nanobot/config.json:
-- ~/.nanobot/config.json keeps LLM/provider config (existing behavior)
+This settings module is intentionally separate from ~/.fanfan/config.json:
+- ~/.fanfan/config.json keeps LLM/provider config (existing behavior)
 - .env (or environment variables) controls web runtime behavior (ports, UI proxy, DB path, permissions)
 """
 

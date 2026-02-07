@@ -1,24 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 
 export function useMediaQuery(query) {
-  const [matches, setMatches] = useState(false)
+  const [matches, setMatches] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.matchMedia(query).matches
+    }
+    return false
+  })
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return
-
     const mql = window.matchMedia(query)
-    const onChange = () => setMatches(!!mql.matches)
-
-    onChange()
-
-    if (mql.addEventListener) {
-      mql.addEventListener('change', onChange)
-      return () => mql.removeEventListener('change', onChange)
-    }
-
-    // Safari < 14
-    mql.addListener(onChange)
-    return () => mql.removeListener(onChange)
+    const handler = (e) => setMatches(e.matches)
+    mql.addEventListener('change', handler)
+    setMatches(mql.matches)
+    return () => mql.removeEventListener('change', handler)
   }, [query])
 
   return matches

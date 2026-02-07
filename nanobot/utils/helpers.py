@@ -1,5 +1,6 @@
-"""Utility functions for nanobot."""
+"""Utility functions for fanfan."""
 
+import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -10,9 +11,24 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def _migrate_legacy_dir() -> None:
+    """Auto-migrate ~/.nanobot to ~/.fanfan on first run (one-time)."""
+    old = Path.home() / ".nanobot"
+    new = Path.home() / ".fanfan"
+    if old.exists() and not new.exists():
+        try:
+            shutil.copytree(str(old), str(new))
+        except Exception:
+            # If copy fails, just create the new dir fresh
+            pass
+
+
 def get_data_path() -> Path:
-    """Get the nanobot data directory (~/.nanobot)."""
-    return ensure_dir(Path.home() / ".nanobot")
+    """Get the fanfan data directory (~/.fanfan)."""
+    new = Path.home() / ".fanfan"
+    if not new.exists():
+        _migrate_legacy_dir()
+    return ensure_dir(new)
 
 
 def get_workspace_path(workspace: str | None = None) -> Path:
@@ -20,7 +36,7 @@ def get_workspace_path(workspace: str | None = None) -> Path:
     Get the workspace path.
     
     Args:
-        workspace: Optional workspace path. Defaults to ~/.nanobot/workspace.
+        workspace: Optional workspace path. Defaults to ~/.fanfan/workspace.
     
     Returns:
         Expanded and ensured workspace path.
@@ -28,7 +44,7 @@ def get_workspace_path(workspace: str | None = None) -> Path:
     if workspace:
         path = Path(workspace).expanduser()
     else:
-        path = Path.home() / ".nanobot" / "workspace"
+        path = Path.home() / ".fanfan" / "workspace"
     return ensure_dir(path)
 
 

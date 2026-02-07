@@ -4,43 +4,60 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: { DEFAULT: '#f7f7f6', secondary: '#ffffff', tertiary: '#f1f5f9' },
-        border: { DEFAULT: '#e2e8f0', soft: '#edf2f7', hover: '#cbd5e1' },
-        text: { primary: '#0f172a', secondary: '#334155', muted: '#64748b' },
-        accent: { blue: '#2563eb' },
+        /* Semantic text colors */
+        text: {
+          primary: '#111827',   /* gray-900 */
+          secondary: '#4b5563', /* gray-600 */
+          muted: '#9ca3af',     /* gray-400 */
+        },
+        /* Semantic background colors */
+        bg: {
+          DEFAULT: '#ffffff',
+          secondary: '#f3f4f6', /* gray-100 */
+          tertiary: '#e5e7eb',  /* gray-200 */
+        },
+        /* Semantic border colors */
+        border: {
+          DEFAULT: '#e5e7eb',   /* gray-200 */
+          soft: '#f3f4f6',      /* gray-100 */
+        },
+        /* Status colors */
         status: {
-          running: '#2563eb',
-          success: '#16a34a',
-          error: '#dc2626',
-          pending: '#d97706',
+          error: '#ef4444',     /* red-500 */
+          success: '#22c55e',   /* green-500 */
+          warning: '#f59e0b',   /* amber-500 */
+          pending: '#f59e0b',   /* amber-500 */
         },
-        btn: { primary: '#2563eb', 'primary-hover': '#1d4ed8' },
-        bubble: {
-          user: 'rgba(37,99,235,0.08)',
-          assistant: '#ffffff',
+        /* Accent */
+        accent: {
+          blue: '#2563eb',      /* blue-600 */
         },
-      },
-      fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', 'sans-serif'],
-        mono: ['"SF Mono"', 'Monaco', '"Cascadia Code"', '"Fira Code"', 'monospace'],
+        /* Button colors */
+        btn: {
+          primary: '#111827',         /* gray-900 */
+          'primary-hover': '#1f2937', /* gray-800 */
+        },
       },
       maxWidth: {
-        chat: '860px',
-      },
-      borderRadius: {
-        bubble: '11px',
+        chat: '768px',
       },
       animation: {
+        'fade-in': 'fade-in 0.2s ease',
+        'slide-up': 'slide-up 0.2s ease',
         'pulse-dot': 'pulse-dot 1.5s infinite',
-        'blink': 'blink 1s infinite',
-        'fade-in': 'fade-in 0.15s ease',
       },
       keyframes: {
-        'pulse-dot': { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.3' } },
-        'blink': { '0%,100%': { opacity: '1' }, '50%': { opacity: '0' } },
         'fade-in': {
-          from: { opacity: '0', transform: 'translateY(2px)' },
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'slide-up': {
+          from: { opacity: '0', transform: 'translateY(4px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'pulse-dot': {
+          '0%,100%': { opacity: '1' },
+          '50%': { opacity: '0.3' },
         },
       },
     },

@@ -1,44 +1,31 @@
 import { useEffect, useRef, useCallback, useReducer } from 'react'
 import { connectSSE } from '../lib/api'
 
-/**
- * fanfan v2 event protocol.
- * SSE envelope: { id, seq, ts, type, session_id, turn_id, step_id, payload }
- */
-
 const initialState = {
   blocks: [],
   streamingText: '',
   streamingMessageId: null,
   streamingRole: null,
-
   thinkingText: '',
   thinkingStartTs: null,
-
-  status: 'idle', // idle | running | error
+  status: 'idle',
   lastEventId: null,
   connectionStatus: 'disconnected',
-
   usage: null,
-  toolCalls: [], // [{tool_call_id, tool_name, status, duration_ms, input, output, error, terminal}]
-
-  pendingPermission: null, // { requestId, tool_call_id, tool_name, input }
+  toolCalls: [],
+  pendingPermission: null,
 }
 
-function flushStreamingAssistant(state, ts) {
+function flushStreaming(state, ts) {
   if (!state.streamingMessageId || !state.streamingText || state.streamingRole !== 'assistant') return state
-
   return {
     ...state,
-    blocks: [
-      ...state.blocks,
-      {
-        id: state.streamingMessageId,
-        type: 'assistant',
-        text: state.streamingText,
-        ts,
-      },
-    ],
+    blocks: [...state.blocks, {
+      id: state.streamingMessageId,
+      type: 'assistant',
+      text: state.streamingText,
+      ts,
+    }],
     streamingText: '',
     streamingMessageId: null,
     streamingRole: null,
@@ -49,13 +36,10 @@ function reducer(state, action) {
   switch (action.type) {
     case 'RESET':
       return { ...initialState, connectionStatus: state.connectionStatus }
-
     case 'SET_CONNECTION':
       return { ...state, connectionStatus: action.status }
-
     case 'SET_LAST_EVENT_ID':
       return { ...state, lastEventId: action.id }
-
     case 'CLEAR_PENDING_PERMISSION':
       return { ...state, pendingPermission: null }
 
@@ -78,19 +62,14 @@ function reducer(state, action) {
             }
           }
 
-          // assistant streaming
           let next = state
           if (next.streamingMessageId && next.streamingMessageId !== messageId) {
-            next = flushStreamingAssistant(next, ts)
+            next = flushStreaming(next, ts)
           }
           if (!next.streamingMessageId) {
             next = { ...next, streamingMessageId: messageId, streamingText: '', streamingRole: 'assistant' }
           }
-          return {
-            ...next,
-            status: 'running',
-            streamingText: next.streamingText + delta,
-          }
+          return { ...next, status: 'running', streamingText: next.streamingText + delta }
         }
 
         case 'thinking': {
@@ -102,21 +81,17 @@ function reducer(state, action) {
             return { ...state, status: 'running', thinkingText: state.thinkingText + (payload.text || '') }
           }
           if (status === 'end') {
-            const next = flushStreamingAssistant(state, ts)
-            const durationMs = payload.duration_ms || null
+            const next = flushStreaming(state, ts)
             return {
               ...next,
               status: 'running',
-              blocks: [
-                ...next.blocks,
-                {
-                  id: `thinking_${Date.now()}`,
-                  type: 'thinking',
-                  text: state.thinkingText,
-                  duration_ms: durationMs,
-                  ts: state.thinkingStartTs || ts,
-                },
-              ],
+              blocks: [...next.blocks, {
+                id: `thinking_${Date.now()}`,
+                type: 'thinking',
+                text: state.thinkingText,
+                duration_ms: payload.duration_ms || null,
+                ts: state.thinkingStartTs || ts,
+              }],
               thinkingText: '',
               thinkingStartTs: null,
             }
@@ -125,62 +100,45 @@ function reducer(state, action) {
         }
 
         case 'tool_call': {
-          let next = flushStreamingAssistant(state, ts)
+          let next = flushStreaming(state, ts)
+          const { tool_call_id, tool_name, input = {}, status: toolStatus = 'running' } = payload
 
-          const tool_call_id = payload.tool_call_id
-          const tool_name = payload.tool_name
-          const toolStatus = payload.status || 'running'
-          const input = payload.input || {}
-
-          // Upsert tool call record
           const existingIdx = next.toolCalls.findIndex(tc => tc.tool_call_id === tool_call_id)
+          const existing = existingIdx >= 0 ? next.toolCalls[existingIdx] : {}
           const tc = {
             tool_call_id,
             tool_name,
             status: toolStatus,
             input,
-            output: existingIdx >= 0 ? next.toolCalls[existingIdx].output : null,
-            error: existingIdx >= 0 ? next.toolCalls[existingIdx].error : null,
-            duration_ms: existingIdx >= 0 ? next.toolCalls[existingIdx].duration_ms : 0,
-            terminal: existingIdx >= 0 ? next.toolCalls[existingIdx].terminal : '',
+            output: existing.output || null,
+            error: existing.error || null,
+            duration_ms: existing.duration_ms || 0,
+            terminal: existing.terminal || '',
             ts,
           }
+
           const toolCalls = [...next.toolCalls]
           if (existingIdx >= 0) toolCalls[existingIdx] = tc
           else toolCalls.push(tc)
 
-          // Upsert block
           const blocks = existingIdx >= 0
-            ? next.blocks.map(b => (b.id === tool_call_id ? { ...b, ...tc, type: 'tool_call' } : b))
+            ? next.blocks.map(b => b.id === tool_call_id ? { ...b, ...tc, type: 'tool_call' } : b)
             : [...next.blocks, { id: tool_call_id, type: 'tool_call', ...tc }]
 
           let pendingPermission = next.pendingPermission
           if (toolStatus === 'permission_required' && payload.permission_request_id) {
-            pendingPermission = {
-              requestId: payload.permission_request_id,
-              tool_call_id,
-              tool_name,
-              input,
-            }
+            pendingPermission = { requestId: payload.permission_request_id, tool_call_id, tool_name, input }
           }
 
-          return {
-            ...next,
-            status: 'running',
-            toolCalls,
-            blocks,
-            pendingPermission,
-          }
+          return { ...next, status: 'running', toolCalls, blocks, pendingPermission }
         }
 
         case 'terminal_chunk': {
-          const tool_call_id = payload.tool_call_id
-          const text = payload.text || ''
-          const stream = payload.stream || 'stdout'
-          const prefix = stream === 'stderr' ? '' : ''
-          const chunk = prefix + text
-
-          const toolCalls = nextToolCallsWith(nextToolCallsWithTerminal(state.toolCalls, tool_call_id, chunk))
+          const { tool_call_id, text = '' } = payload
+          const chunk = text
+          const toolCalls = state.toolCalls.map(tc =>
+            tc.tool_call_id === tool_call_id ? { ...tc, terminal: (tc.terminal || '') + chunk } : tc
+          )
           const blocks = state.blocks.map(b =>
             b.id === tool_call_id && b.type === 'tool_call'
               ? { ...b, terminal: (b.terminal || '') + chunk }
@@ -190,49 +148,41 @@ function reducer(state, action) {
         }
 
         case 'tool_result': {
-          let next = flushStreamingAssistant(state, ts)
-          const tool_call_id = payload.tool_call_id
-          const ok = !!payload.ok
-          const output = payload.output || ''
-          const error = payload.error || ''
-          const duration_ms = payload.duration_ms || 0
+          let next = flushStreaming(state, ts)
+          const { tool_call_id, ok, output = '', error = '', duration_ms = 0 } = payload
+          const newStatus = ok ? 'completed' : 'error'
 
           const toolCalls = next.toolCalls.map(tc =>
             tc.tool_call_id === tool_call_id
-              ? { ...tc, status: ok ? 'completed' : 'error', output: ok ? output : tc.output, error: ok ? tc.error : (error || tc.error), duration_ms }
+              ? { ...tc, status: newStatus, output: ok ? output : tc.output, error: ok ? tc.error : (error || tc.error), duration_ms }
               : tc
           )
-
           const blocks = next.blocks.map(b =>
             b.id === tool_call_id && b.type === 'tool_call'
-              ? { ...b, status: ok ? 'completed' : 'error', output: ok ? output : b.output, error: ok ? b.error : error, duration_ms }
+              ? { ...b, status: newStatus, output: ok ? output : b.output, error: ok ? b.error : error, duration_ms }
               : b
           )
-
           return { ...next, status: 'running', toolCalls, blocks }
         }
 
         case 'diff': {
-          const next = flushStreamingAssistant(state, ts)
+          const next = flushStreaming(state, ts)
           return {
             ...next,
             status: 'running',
-            blocks: [
-              ...next.blocks,
-              {
-                id: `diff_${payload.tool_call_id || 'x'}_${Date.now()}`,
-                type: 'diff',
-                tool_call_id: payload.tool_call_id,
-                path: payload.path,
-                diff: payload.diff,
-                ts,
-              },
-            ],
+            blocks: [...next.blocks, {
+              id: `diff_${payload.tool_call_id || 'x'}_${Date.now()}`,
+              type: 'diff',
+              tool_call_id: payload.tool_call_id,
+              path: payload.path,
+              diff: payload.diff,
+              ts,
+            }],
           }
         }
 
         case 'final': {
-          let next = flushStreamingAssistant(state, ts)
+          let next = flushStreaming(state, ts)
           const text = payload.text || ''
           if (text && !next.blocks.some(b => b.type === 'assistant' && b.id === payload.message_id)) {
             next = {
@@ -240,28 +190,21 @@ function reducer(state, action) {
               blocks: [...next.blocks, { id: payload.message_id || `assistant_${Date.now()}`, type: 'assistant', text, ts }],
             }
           }
-          return {
-            ...next,
-            status: 'idle',
-            usage: payload.usage || next.usage,
-          }
+          return { ...next, status: 'idle', usage: payload.usage || next.usage }
         }
 
         case 'error': {
-          const next = flushStreamingAssistant(state, ts)
+          const next = flushStreaming(state, ts)
           return {
             ...next,
             status: 'error',
-            blocks: [
-              ...next.blocks,
-              {
-                id: `error_${Date.now()}`,
-                type: 'error',
-                text: payload.message || 'Unknown error',
-                code: payload.code,
-                ts,
-              },
-            ],
+            blocks: [...next.blocks, {
+              id: `error_${Date.now()}`,
+              type: 'error',
+              text: payload.message || 'Unknown error',
+              code: payload.code,
+              ts,
+            }],
           }
         }
 
@@ -273,16 +216,6 @@ function reducer(state, action) {
     default:
       return state
   }
-}
-
-function nextToolCallsWithTerminal(toolCalls, tool_call_id, chunk) {
-  return toolCalls.map(tc =>
-    tc.tool_call_id === tool_call_id ? { ...tc, terminal: (tc.terminal || '') + chunk } : tc
-  )
-}
-
-function nextToolCallsWith(toolCalls) {
-  return toolCalls
 }
 
 export function useEventStream(sessionId) {
@@ -320,7 +253,6 @@ export function useEventStream(sessionId) {
         }
       }
     )
-
     esRef.current = es
   }, [sessionId, handleEvent])
 
@@ -350,4 +282,3 @@ export function useEventStream(sessionId) {
 
   return { ...state, clearPendingPermission }
 }
-

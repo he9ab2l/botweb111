@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Settings } from 'lucide-react'
 import { useEventStream } from './hooks/useEventStream'
 import { useMediaQuery } from './hooks/useMediaQuery'
 import { createSession, listSessions, deleteSession, getSession, renameSession, sendMessage, cancelRun, resolvePermission } from './lib/api'
@@ -9,6 +9,7 @@ import ChatTimeline from './components/ChatTimeline'
 import InputArea from './components/InputArea'
 import Inspector from './components/Inspector'
 import PermissionModal from './components/PermissionModal'
+import SettingsDialog from './components/SettingsDialog'
 
 export default function App() {
   const isMobile = useMediaQuery('(max-width: 768px)')
@@ -23,6 +24,7 @@ export default function App() {
   const [pendingMessages, setPendingMessages] = useState({})
   const [localSendingSessionId, setLocalSendingSessionId] = useState(null)
   const [searchFocusTrigger, setSearchFocusTrigger] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // SSE event stream for active session
   const eventState = useEventStream(activeSessionId)
@@ -328,6 +330,14 @@ export default function App() {
             </div>
 
             <button
+              onClick={() => setSettingsOpen(true)}
+              className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors"
+              title="Settings"
+            >
+              <Settings size={16} />
+            </button>
+
+            <button
               onClick={toggleInspector}
               className={cn(
                 'p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors ml-1',
@@ -422,6 +432,11 @@ export default function App() {
           eventState.clearPendingPermission()
         }}
         onClose={() => eventState.clearPendingPermission()}
+      />
+
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
     </div>
   )
