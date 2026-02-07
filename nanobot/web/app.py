@@ -1025,7 +1025,7 @@ cp ./config.example.json ~/.nanobot/config.json
             target = settings.ui_url if settings.ui_mode == "remote" else settings.ui_dev_server_url
             return await _proxy_to(target, request, "")
 
-        @app.api_route("/{full_path:path}", methods=["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"])
+        @app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
         async def proxy_catchall(full_path: str, request: Request):
             if full_path.startswith("api/") or full_path.startswith("docs") or full_path == "openapi.json":
                 raise HTTPException(status_code=404)

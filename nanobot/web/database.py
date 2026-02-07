@@ -36,10 +36,12 @@ class Database:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            self._conn = sqlite3.connect(self._db_path, check_same_thread=False, timeout=30.0)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
+            # Avoid transient "database is locked" errors when multiple tasks/workers write events.
+            self._conn.execute("PRAGMA busy_timeout=30000")
         return self._conn
 
     def _table_columns(self, name: str) -> list[str]:
@@ -410,24 +412,40 @@ class Database:
         """Insert a v2 event and return the persisted envelope (with id + seq)."""
         with self._lock:
             conn = self._get_conn()
-            seq = self._next_session_seq(conn, session_id)
             payload_json = json.dumps(payload or {}, ensure_ascii=False)
-            cur = conn.execute(
-                "INSERT INTO events (session_id, turn_id, step_id, seq, ts, type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, turn_id, step_id, int(seq), float(ts), str(evt_type), payload_json),
-            )
-            conn.commit()
-            evt_id = int(cur.lastrowid)
-            return {
-                "id": evt_id,
-                "seq": seq,
-                "ts": float(ts),
-                "type": str(evt_type),
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "step_id": step_id,
-                "payload": payload or {},
-            }
+
+            # NOTE: seq is per-session and must be monotonic.
+            # In WAL mode, multiple processes can race if we compute MAX(seq) in deferred transactions.
+            # Use BEGIN IMMEDIATE to serialize writers during seq allocation.
+            for _attempt in range(3):
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    seq = self._next_session_seq(conn, session_id)
+                    cur = conn.execute(
+                        "INSERT INTO events (session_id, turn_id, step_id, seq, ts, type, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (session_id, turn_id, step_id, int(seq), float(ts), str(evt_type), payload_json),
+                    )
+                    conn.commit()
+                    evt_id = int(cur.lastrowid)
+                    return {
+                        "id": evt_id,
+                        "seq": seq,
+                        "ts": float(ts),
+                        "type": str(evt_type),
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "step_id": step_id,
+                        "payload": payload or {},
+                    }
+                except sqlite3.IntegrityError:
+                    # Retry in case of a rare seq uniqueness race.
+                    conn.rollback()
+                    continue
+                except Exception:
+                    conn.rollback()
+                    raise
+
+            raise sqlite3.IntegrityError("failed to allocate per-session event seq")
 
     def get_events_v2(
         self,

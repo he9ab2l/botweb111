@@ -65,6 +65,10 @@ def _validate_rel_path(path: str) -> str | None:
 
 
 class ApplyPatchTool(Tool):
+    def __init__(self, *, allowed_root: str | Path | None = None):
+        # If set, every patched file must resolve within this root.
+        self._allowed_root = Path(allowed_root).expanduser().resolve() if allowed_root else None
+
     @property
     def name(self) -> str:
         return "apply_patch"
@@ -86,15 +90,38 @@ class ApplyPatchTool(Tool):
     async def execute(self, patch: str, **kwargs: Any) -> str:
         # Validate patch file paths best-effort before applying.
         files = _extract_files_from_patch(patch)
-        for f in files:
-            err = _validate_rel_path(f.get("path", ""))
-            if err:
-                return json.dumps({"applied": False, "error": f"invalid path in patch: {err}", "files": files})
 
         # Apply using git (works for multi-file patches and keeps implementation small).
         cwd = kwargs.get("cwd") or kwargs.get("workdir") or kwargs.get("working_dir") or None
-        if cwd:
-            cwd = str(Path(str(cwd)).expanduser())
+        cwd_path = Path(str(cwd)).expanduser().resolve() if cwd else Path.cwd().resolve()
+
+        for f in files:
+            rel = str(f.get("path", "") or "")
+            err = _validate_rel_path(rel)
+            if err:
+                return json.dumps({"applied": False, "error": f"invalid path in patch: {err}", "files": files})
+
+            if self._allowed_root and rel:
+                try:
+                    candidate = (cwd_path / rel).resolve()
+                    if candidate != self._allowed_root and not candidate.is_relative_to(self._allowed_root):
+                        return json.dumps(
+                            {
+                                "applied": False,
+                                "error": "invalid path in patch: path is outside allowed root",
+                                "files": files,
+                            },
+                            ensure_ascii=False,
+                        )
+                except Exception:
+                    return json.dumps(
+                        {
+                            "applied": False,
+                            "error": "invalid path in patch: failed to resolve path",
+                            "files": files,
+                        },
+                        ensure_ascii=False,
+                    )
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -105,7 +132,7 @@ class ApplyPatchTool(Tool):
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
+                cwd=str(cwd_path),
             )
             assert proc.stdin is not None
             proc.stdin.write(patch.encode("utf-8"))
@@ -127,4 +154,3 @@ class ApplyPatchTool(Tool):
             )
         except Exception as e:
             return json.dumps({"applied": False, "error": str(e), "files": files}, ensure_ascii=False)
-

@@ -40,6 +40,10 @@ class WebSettings(BaseSettings):
     db_path: str | None = None
     db_copy_from_legacy: bool = True
 
+    # File tools root (read_file/write_file/apply_patch)
+    # Defaults to the repo root to prevent accidental reads/writes outside the deployment directory.
+    fs_root: str = "."
+
     # UI proxy/serving
     ui_mode: UiMode = "static"
     ui_url: str = ""  # required when ui_mode=remote
@@ -97,6 +101,10 @@ class WebSettings(BaseSettings):
 
     def resolved_ui_static_dir(self) -> Path:
         p = Path(self.ui_static_dir)
+        return p if p.is_absolute() else repo_root() / p
+
+    def resolved_fs_root(self) -> Path:
+        p = Path(self.fs_root)
         return p if p.is_absolute() else repo_root() / p
 
     def tool_policy(self, tool_name: str) -> Policy:

@@ -42,7 +42,7 @@ def _unified_diff(path: str, before: str, after: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _read_file_best_effort(path: str) -> str:
+def _read_file_best_effort(path: str | Path) -> str:
     try:
         p = Path(path).expanduser()
         if not p.exists() or not p.is_file():
@@ -50,6 +50,45 @@ def _read_file_best_effort(path: str) -> str:
         return p.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return ""
+
+
+def _looks_like_tool_error(text: str) -> bool:
+    s = (text or "").lstrip()
+    return s.startswith("Error:") or s.startswith("Error ")
+
+
+def _tool_ok_and_error(tool_name: str, tool_output: str) -> tuple[bool, str]:
+    """Best-effort ok/error detection for tool outputs.
+
+    Some tools (e.g. http_fetch/apply_patch) return JSON even on failure, so
+    string-prefix checks are not sufficient.
+    """
+
+    if tool_name == "http_fetch":
+        try:
+            data = json.loads(tool_output)
+            if isinstance(data, dict) and data.get("error"):
+                return False, str(data.get("error"))
+        except Exception:
+            pass
+
+    if tool_name == "apply_patch":
+        try:
+            data = json.loads(tool_output)
+            if isinstance(data, dict) and not bool(data.get("applied")):
+                err = (
+                    data.get("error")
+                    or data.get("stderr")
+                    or data.get("stdout")
+                    or "Patch not applied"
+                )
+                return False, str(err)
+        except Exception:
+            pass
+
+    if _looks_like_tool_error(tool_output):
+        return False, tool_output
+    return True, ""
 
 
 class FanfanWebRunner:
@@ -73,6 +112,8 @@ class FanfanWebRunner:
         self._model = model
         self._max_iterations = max_iterations
 
+        self._fs_root = settings.resolved_fs_root().expanduser().resolve()
+
         self._workspace = repo_root() / "workspace"
         self._context = ContextBuilder(self._workspace)
 
@@ -82,11 +123,30 @@ class FanfanWebRunner:
     def _register_tools(self, *, brave_api_key: str | None) -> None:
         # OpenCode-required tool names
         self._tools.register(RunCommandTool(working_dir=str(repo_root())))
-        self._tools.register(ReadFileTool())
-        self._tools.register(WriteFileTool())
-        self._tools.register(ApplyPatchTool())
+        self._tools.register(ReadFileTool(root=self._fs_root))
+        self._tools.register(WriteFileTool(root=self._fs_root))
+        self._tools.register(ApplyPatchTool(allowed_root=self._fs_root))
         self._tools.register(SearchTool(api_key=brave_api_key))
         self._tools.register(HttpFetchTool())
+
+    def _resolve_fs_path(self, raw_path: str) -> Path | None:
+        try:
+            p = Path(raw_path).expanduser()
+            if not p.is_absolute():
+                p = self._fs_root / p
+            resolved = p.resolve()
+            root = self._fs_root.resolve()
+            if resolved == root or resolved.is_relative_to(root):
+                return resolved
+            return None
+        except Exception:
+            return None
+
+    def _display_fs_path(self, p: Path) -> str:
+        try:
+            return p.resolve().relative_to(self._fs_root.resolve()).as_posix()
+        except Exception:
+            return str(p)
 
     async def run_turn(self, *, session_id: str, turn_id: str, user_text: str) -> str:
         """Run a single user turn (async task). Returns final assistant text."""
@@ -321,13 +381,18 @@ class FanfanWebRunner:
                         tool_error = ""
                         ok = True
 
-                        # File snapshot for diff
+                        # File snapshot for diff (write_file only; apply_patch emits per-file diffs itself)
                         before_text: str | None = None
-                        target_path: str | None = None
-                        if tool_name in ("write_file", "apply_patch"):
-                            target_path = str(args.get("path") or "")
-                            if target_path:
-                                before_text = _read_file_best_effort(target_path)
+                        target_raw_path: str | None = None
+                        target_path: Path | None = None
+                        target_display_path: str | None = None
+                        if tool_name == "write_file":
+                            target_raw_path = str(args.get("path") or "")
+                            if target_raw_path:
+                                target_path = self._resolve_fs_path(target_raw_path)
+                                if target_path is not None:
+                                    target_display_path = self._display_fs_path(target_path)
+                                    before_text = _read_file_best_effort(target_path)
 
                         # Terminal streaming for run_command
                         if tool_name == "run_command":
@@ -361,10 +426,10 @@ class FanfanWebRunner:
 
                         duration_ms = int((time.time() - start_t) * 1000)
 
-                        # Determine ok/error
-                        if tool_output.startswith("Error"):
-                            ok = False
-                            tool_error = tool_output
+                        # Determine ok/error. Some tools return JSON even on failure.
+                        ok, parsed_err = _tool_ok_and_error(tool_name, tool_output)
+                        if not ok:
+                            tool_error = parsed_err
 
                         # Emit tool_result
                         await self._emit_tool_result(
@@ -380,17 +445,18 @@ class FanfanWebRunner:
                         )
 
                         # Emit diff + persist file change
-                        if ok and tool_name == "write_file" and target_path and before_text is not None:
+                        if ok and tool_name == "write_file" and target_path is not None and before_text is not None:
                             after_text = _read_file_best_effort(target_path)
                             if before_text != after_text:
-                                diff = _unified_diff(target_path, before_text, after_text)
-                                self._db.add_file_change(session_id, turn_id, step_id, target_path, diff)
+                                display_path = target_display_path or self._display_fs_path(target_path)
+                                diff = _unified_diff(display_path, before_text, after_text)
+                                self._db.add_file_change(session_id, turn_id, step_id, display_path, diff)
                                 await self._bus.publish(
                                     session_id=session_id,
                                     turn_id=turn_id,
                                     step_id=step_id,
                                     type="diff",
-                                    payload={"tool_call_id": tool_call_id, "path": target_path, "diff": diff},
+                                    payload={"tool_call_id": tool_call_id, "path": display_path, "diff": diff},
                                 )
 
                         if ok and tool_name == "apply_patch":
@@ -415,9 +481,13 @@ class FanfanWebRunner:
 
                         # Opportunistic context items (MVP): successful read_file/http_fetch get remembered
                         if ok and tool_name == "read_file":
-                            p = str(args.get("path") or "")
-                            if p:
-                                self._db.add_context_item(session_id, kind="file", title=p, content_ref=p, pinned=False)
+                            raw = str(args.get("path") or "")
+                            if raw:
+                                rp = self._resolve_fs_path(raw)
+                                display = self._display_fs_path(rp) if rp is not None else raw
+                                self._db.add_context_item(
+                                    session_id, kind="file", title=display, content_ref=display, pinned=False
+                                )
                         if ok and tool_name == "http_fetch":
                             try:
                                 data = json.loads(tool_output)
