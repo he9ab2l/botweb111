@@ -25,7 +25,7 @@ export default {
         mono: ['"SF Mono"', 'Monaco', '"Cascadia Code"', '"Fira Code"', 'monospace'],
       },
       maxWidth: {
-        chat: '860px',
+        chat: '920px',
       },
       borderRadius: {
         bubble: '11px',

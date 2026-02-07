@@ -22,6 +22,9 @@ export const getSessionModel = client.getSessionModel
 export const setSessionModel = client.setSessionModel
 export const clearSessionModel = client.clearSessionModel
 
+export const getDocs = client.getDocs
+export const getDocFile = client.getDocFile
+
 export const fsTree = client.fsTree
 export const fsRead = client.fsRead
 export const fsVersions = client.fsVersions

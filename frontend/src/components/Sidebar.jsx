@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import { Plus, MessageSquare, Trash2, Search, X } from 'lucide-react'
+import { Plus, MessageSquare, Trash2, Search, X, FileText, Settings } from 'lucide-react'
 import { cn, truncate } from '../lib/utils'
 
 /**
@@ -17,6 +17,13 @@ export default function Sidebar({
   onDeleteSession,
   onRenameSession,
   searchFocusTrigger,
+  docs,
+  extraDocs,
+  activeDocPath,
+  onSelectDoc,
+  docsExpanded,
+  onToggleDocs,
+  onOpenSettings,
 }) {
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState(null)
@@ -38,6 +45,26 @@ export default function Sidebar({
       (s.id || '').toLowerCase().includes(q)
     )
   }, [sessions, search])
+
+  const filteredDocs = useMemo(() => {
+    const list = docs || []
+    if (!search.trim()) return list
+    const q = search.toLowerCase()
+    return list.filter(d =>
+      (d.title || '').toLowerCase().includes(q) ||
+      (d.path || '').toLowerCase().includes(q)
+    )
+  }, [docs, search])
+
+  const filteredExtraDocs = useMemo(() => {
+    const list = extraDocs || []
+    if (!search.trim()) return list
+    const q = search.toLowerCase()
+    return list.filter(d =>
+      (d.title || '').toLowerCase().includes(q) ||
+      (d.path || '').toLowerCase().includes(q)
+    )
+  }, [extraDocs, search])
 
   const handleDoubleClick = useCallback((session) => {
     setEditingId(session.id)
@@ -87,7 +114,7 @@ export default function Sidebar({
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search..."
+            placeholder="Search chats & docs..."
             className={cn(
               'w-full pl-8 pr-8 py-1.5 rounded text-xs',
               'bg-bg-secondary border border-border-soft text-text-primary',
@@ -107,6 +134,7 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-1">
+        <div className="px-1.5 py-1 text-[10px] uppercase tracking-wide text-text-muted">Chats</div>
         {filtered.length === 0 && (
           <p className="text-xs text-text-muted text-center py-4">
             {sessions.length === 0 ? 'No chats yet' : 'No matches'}
@@ -172,6 +200,75 @@ export default function Sidebar({
             </button>
           </div>
         ))}
+
+        <div className="mt-2 px-1.5 py-1 text-[10px] uppercase tracking-wide text-text-muted">Documents</div>
+        {(filteredDocs || []).length === 0 && (filteredExtraDocs || []).length === 0 && (
+          <p className="text-xs text-text-muted text-center py-2">No documents</p>
+        )}
+
+        {(filteredDocs || []).map(doc => (
+          <div
+            key={doc.id || doc.path}
+            onClick={() => onSelectDoc && onSelectDoc(doc)}
+            className={cn(
+              'group flex items-center gap-2 px-2.5 py-1.5 rounded mb-0.5 cursor-pointer border border-transparent',
+              'text-sm transition-colors',
+              doc.path === activeDocPath
+                ? 'bg-bg-tertiary/60 text-text-primary border-border-soft'
+                : 'text-text-secondary hover:bg-bg-tertiary/40 hover:text-text-primary'
+            )}
+          >
+            <FileText size={12} className="shrink-0 text-text-muted" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs">{truncate(doc.title || doc.path || 'Doc', 28)}</div>
+              <div className="text-[10px] text-text-muted mt-0.5 truncate">{doc.path}</div>
+            </div>
+          </div>
+        ))}
+
+        {(filteredExtraDocs || []).length > 0 && (
+          <div className="mt-1">
+            <button
+              onClick={() => onToggleDocs && onToggleDocs()}
+              className="text-[11px] text-text-muted hover:text-text-secondary px-2.5 py-1"
+            >
+              {docsExpanded ? 'Hide more files' : 'Show more files'}
+            </button>
+            {docsExpanded && (
+              <div className="mt-1">
+                {filteredExtraDocs.map(doc => (
+                  <div
+                    key={doc.id || doc.path}
+                    onClick={() => onSelectDoc && onSelectDoc(doc)}
+                    className={cn(
+                      'group flex items-center gap-2 px-2.5 py-1.5 rounded mb-0.5 cursor-pointer border border-transparent',
+                      'text-sm transition-colors',
+                      doc.path === activeDocPath
+                        ? 'bg-bg-tertiary/60 text-text-primary border-border-soft'
+                        : 'text-text-secondary hover:bg-bg-tertiary/40 hover:text-text-primary'
+                    )}
+                  >
+                    <FileText size={12} className="shrink-0 text-text-muted" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs">{truncate(doc.title || doc.path || 'Doc', 28)}</div>
+                      <div className="text-[10px] text-text-muted mt-0.5 truncate">{doc.path}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-border-soft px-2.5 py-2">
+        <button
+          onClick={() => onOpenSettings && onOpenSettings()}
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded border border-border-soft bg-bg-secondary text-text-muted hover:text-text-primary hover:border-border transition-colors text-xs"
+        >
+          <Settings size={12} />
+          Settings
+        </button>
       </div>
     </div>
   )

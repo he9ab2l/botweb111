@@ -19,6 +19,9 @@ export type Client = {
   setSessionModel: (sessionId: string, model: string) => Promise<any>
   clearSessionModel: (sessionId: string) => Promise<any>
 
+  getDocs: () => Promise<any>
+  getDocFile: (path: string) => Promise<any>
+
   getEvents: (sessionId: string, opts?: { since?: number; since_seq?: number }) => Promise<EventEnvelope[]>
   subscribeEvents: (opts: {
     sessionId: string
@@ -129,6 +132,9 @@ export function createClient(opts: { baseUrl?: string; fetch?: FetchLike } = {})
     setSessionModel: (sessionId, model) =>
       api(`/sessions/${encodeURIComponent(sessionId)}/model`, { method: 'POST', body: { model } }),
     clearSessionModel: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/model`, { method: 'DELETE' }),
+
+    getDocs: () => api('/docs'),
+    getDocFile: (path) => api(`/docs/file?path=${encodeURIComponent(path)}`),
 
     getEvents: (sessionId, opts2 = {}) => {
       const q = new URLSearchParams()

@@ -1,9 +1,34 @@
-import { useState, useEffect, useCallback } from 'react'
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Settings } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Settings,
+  Search,
+  Copy,
+  Check,
+  X,
+} from 'lucide-react'
 import { useEventStream } from './hooks/useEventStream'
 import { useMediaQuery } from './hooks/useMediaQuery'
-import { createSession, listSessions, deleteSession, getSession, getConfig, getSessionModel, renameSession, sendMessage, cancelRun, resolvePermission } from './lib/api'
-import { cn } from './lib/utils'
+import {
+  createSession,
+  listSessions,
+  deleteSession,
+  getSession,
+  getConfig,
+  getSessionModel,
+  setSessionModel,
+  clearSessionModel,
+  renameSession,
+  sendMessage,
+  cancelRun,
+  resolvePermission,
+  getDocs,
+  getDocFile,
+} from './lib/api'
+import { cn, copyToClipboard } from './lib/utils'
 import Sidebar from './components/Sidebar'
 import ChatTimeline from './components/ChatTimeline'
 import InputArea from './components/InputArea'
@@ -18,17 +43,34 @@ export default function App() {
   const [sessions, setSessions] = useState([])
   const [activeSessionId, setActiveSessionId] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(true)
   const [viewMode, setViewMode] = useState('chat')
   const [historyMessages, setHistoryMessages] = useState([])
   const [pendingMessages, setPendingMessages] = useState({})
   const [localSendingSessionId, setLocalSendingSessionId] = useState(null)
   const [searchFocusTrigger, setSearchFocusTrigger] = useState(0)
 
+  // Docs state
+  const [docs, setDocs] = useState([])
+  const [extraDocs, setExtraDocs] = useState([])
+  const [docsExpanded, setDocsExpanded] = useState(false)
+  const [activeDoc, setActiveDoc] = useState(null)
+  const [docState, setDocState] = useState({
+    content: '',
+    loading: false,
+    error: '',
+    truncated: false,
+  })
+  const [docSearch, setDocSearch] = useState('')
+  const [docCopied, setDocCopied] = useState(false)
+  const docSearchRef = useRef(null)
+  const docRequestId = useRef(0)
+
   // Model/config state
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [configSummary, setConfigSummary] = useState(null)
   const [sessionModelInfo, setSessionModelInfo] = useState(null)
+  const [modelInput, setModelInput] = useState('')
 
   // SSE event stream for active session
   const eventState = useEventStream(activeSessionId)
@@ -49,6 +91,23 @@ export default function App() {
       .catch(() => setSessionModelInfo(null))
   }, [])
 
+  const reloadDocs = useCallback(() => {
+    getDocs()
+      .then(data => {
+        const base = data?.default || []
+        const extra = data?.extra || []
+        setDocs(base)
+        setExtraDocs(extra)
+        if (!activeDoc && base.length > 0) {
+          setActiveDoc({
+            title: base[0].title || base[0].path,
+            path: base[0].path,
+          })
+        }
+      })
+      .catch(() => {})
+  }, [activeDoc])
+
   // Load sessions on mount
   useEffect(() => {
     listSessions()
@@ -58,7 +117,8 @@ export default function App() {
 
   useEffect(() => {
     reloadConfig()
-  }, [reloadConfig])
+    reloadDocs()
+  }, [reloadConfig, reloadDocs])
 
   // On mobile, default panels to closed.
   useEffect(() => {
@@ -69,6 +129,7 @@ export default function App() {
     }
 
     setSidebarOpen(true)
+    setInspectorOpen(true)
   }, [isMobile])
 
   // Reload session list periodically to catch auto-naming updates
@@ -117,6 +178,76 @@ export default function App() {
     reloadSessionModel(activeSessionId)
   }, [activeSessionId, reloadSessionModel])
 
+  useEffect(() => {
+    const next = (sessionModelInfo?.effective_model || configSummary?.default_model || '').trim()
+    setModelInput(next)
+  }, [sessionModelInfo, configSummary])
+
+  // Load active document content
+  useEffect(() => {
+    if (!activeDoc?.path) {
+      setDocState({ content: '', loading: false, error: '', truncated: false })
+      return
+    }
+
+    const reqId = ++docRequestId.current
+    setDocState({ content: '', loading: true, error: '', truncated: false })
+
+    getDocFile(activeDoc.path)
+      .then(data => {
+        if (reqId !== docRequestId.current) return
+        setDocState({
+          content: data?.content || '',
+          loading: false,
+          error: '',
+          truncated: !!data?.truncated,
+        })
+      })
+      .catch((e) => {
+        if (reqId !== docRequestId.current) return
+        setDocState({
+          content: '',
+          loading: false,
+          error: e?.message || 'Failed to load document',
+          truncated: false,
+        })
+      })
+  }, [activeDoc])
+
+  useEffect(() => {
+    if (activeDoc?.path) setDocSearch(activeDoc.path)
+  }, [activeDoc?.path])
+
+  useEffect(() => {
+    if (viewMode === 'agent') {
+      setInspectorOpen(true)
+      if (isMobile) setSidebarOpen(false)
+    }
+  }, [viewMode, isMobile])
+
+  useEffect(() => {
+    const handler = (e) => {
+      const key = (e.key || '').toLowerCase()
+      if ((e.ctrlKey || e.metaKey) && key === 'k') {
+        e.preventDefault()
+        setSidebarOpen(true)
+        if (isMobile) setInspectorOpen(false)
+        setSearchFocusTrigger(prev => prev + 1)
+      }
+      if ((e.ctrlKey || e.metaKey) && key === 'p') {
+        e.preventDefault()
+        docSearchRef.current?.focus()
+        docSearchRef.current?.select()
+      }
+      if (e.key === 'Escape') {
+        setInspectorOpen(false)
+        setSettingsOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isMobile])
+
   const addPendingMessage = useCallback((sessionId, text) => {
     const localId = `local_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const localMsg = {
@@ -139,40 +270,28 @@ export default function App() {
     }))
   }, [])
 
-  useEffect(() => {
-    if (viewMode === 'agent') {
-      setInspectorOpen(true)
-      if (isMobile) setSidebarOpen(false)
-    }
-  }, [viewMode, isMobile])
-
-  useEffect(() => {
-    const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault()
-        setSidebarOpen(true)
-        if (isMobile) setInspectorOpen(false)
-        setSearchFocusTrigger(prev => prev + 1)
-      }
-      if (e.key === 'Escape') {
-        setInspectorOpen(false)
-        setSettingsOpen(false)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [isMobile])
-
   // Create new session
   const handleNewSession = useCallback(async () => {
     try {
       const session = await createSession('New Chat')
       setSessions(prev => [session, ...prev])
       setActiveSessionId(session.id)
+
+      const desired = (modelInput || '').trim()
+      const defaultModel = (configSummary?.default_model || '').trim()
+      if (desired && desired !== defaultModel) {
+        try {
+          await setSessionModel(session.id, desired)
+        } catch (err) {
+          console.error('Failed to set model override:', err)
+        } finally {
+          reloadSessionModel(session.id)
+        }
+      }
     } catch (err) {
       console.error('Failed to create session:', err)
     }
-  }, [])
+  }, [modelInput, configSummary, reloadSessionModel])
 
   // Select session
   const handleSelectSession = useCallback((id) => {
@@ -203,6 +322,60 @@ export default function App() {
     }
   }, [])
 
+  const handleSelectDoc = useCallback((doc) => {
+    if (!doc?.path) return
+    setActiveDoc({ title: doc.title || doc.path, path: doc.path })
+    if (isMobile) setSidebarOpen(false)
+  }, [isMobile])
+
+  const handleDocSearchSubmit = useCallback(() => {
+    const q = (docSearch || '').trim()
+    if (!q) return
+    const allDocs = [...(docs || []), ...(extraDocs || [])]
+    const lower = q.toLowerCase()
+    let match = allDocs.find(d => d.path === q || d.title === q)
+    if (!match) {
+      match = allDocs.find(d =>
+        String(d.path || '').toLowerCase().includes(lower) ||
+        String(d.title || '').toLowerCase().includes(lower)
+      )
+    }
+    if (match) {
+      handleSelectDoc(match)
+    }
+  }, [docSearch, docs, extraDocs, handleSelectDoc])
+
+  const handleCopyDocPath = useCallback(async () => {
+    if (!activeDoc?.path) return
+    const ok = await copyToClipboard(activeDoc.path)
+    if (ok) {
+      setDocCopied(true)
+      setTimeout(() => setDocCopied(false), 1500)
+    }
+  }, [activeDoc])
+
+  const handleApplyModel = useCallback(async () => {
+    if (!activeSessionId) return
+    const next = (modelInput || '').trim()
+    if (!next) return
+    try {
+      await setSessionModel(activeSessionId, next)
+      reloadSessionModel(activeSessionId)
+    } catch (err) {
+      console.error('Failed to set model:', err)
+    }
+  }, [activeSessionId, modelInput, reloadSessionModel])
+
+  const handleClearModel = useCallback(async () => {
+    if (!activeSessionId) return
+    try {
+      await clearSessionModel(activeSessionId)
+      reloadSessionModel(activeSessionId)
+    } catch (err) {
+      console.error('Failed to clear model override:', err)
+    }
+  }, [activeSessionId, reloadSessionModel])
+
   // Send message
   const handleSend = useCallback(async (text) => {
     if (!activeSessionId) {
@@ -212,6 +385,18 @@ export default function App() {
         const sid = session.id
         setSessions(prev => [session, ...prev])
         setActiveSessionId(sid)
+
+        const desired = (modelInput || '').trim()
+        const defaultModel = (configSummary?.default_model || '').trim()
+        if (desired && desired !== defaultModel) {
+          try {
+            await setSessionModel(sid, desired)
+          } catch (err) {
+            console.error('Failed to set model override:', err)
+          } finally {
+            reloadSessionModel(sid)
+          }
+        }
 
         const localId = addPendingMessage(sid, text)
         setLocalSendingSessionId(sid)
@@ -245,7 +430,7 @@ export default function App() {
         setLocalSendingSessionId(prev => (prev === sid ? null : prev))
       }, 1200)
     }
-  }, [activeSessionId, addPendingMessage, removePendingMessage])
+  }, [activeSessionId, addPendingMessage, removePendingMessage, modelInput, configSummary, reloadSessionModel])
 
   // Cancel run
   const handleCancel = useCallback(async () => {
@@ -261,6 +446,35 @@ export default function App() {
   const isRunning = eventState.status === 'running' || localSendingSessionId === activeSessionId
 
   const modelLabel = (sessionModelInfo?.effective_model || configSummary?.default_model || '').trim()
+
+  const modelOptions = useMemo(() => {
+    const opts = new Set()
+    const providers = configSummary?.providers || {}
+    const isConfigured = (name) => !!providers?.[name]?.configured
+    const allow = (model) => {
+      if (!configSummary) return true
+      const m = String(model || '').toLowerCase()
+      if (m.startsWith('zai/') || m.includes('glm') || m.includes('zhipu')) return isConfigured('zhipu')
+      if (m.startsWith('openai/') || m.includes('gpt')) return isConfigured('openai')
+      if (m.startsWith('anthropic/') || m.includes('claude')) return isConfigured('anthropic')
+      if (m.startsWith('openrouter/')) return isConfigured('openrouter')
+      if (m.startsWith('gemini/')) return isConfigured('gemini')
+      if (m.startsWith('vllm/')) return isConfigured('vllm')
+      if (m.startsWith('deepseek/')) return isConfigured('deepseek')
+      if (m.startsWith('groq/')) return isConfigured('groq')
+      if (m.startsWith('moonshot/') || m.includes('kimi')) return isConfigured('moonshot')
+      return true
+    }
+    ;(configSummary?.recommended_models || []).forEach((m) => {
+      if (m && allow(m)) opts.add(m)
+    })
+    if (configSummary?.default_model) opts.add(configSummary.default_model)
+    if (sessionModelInfo?.effective_model) opts.add(sessionModelInfo.effective_model)
+    if (sessionModelInfo?.override_model) opts.add(sessionModelInfo.override_model)
+    return Array.from(opts)
+  }, [configSummary, sessionModelInfo])
+
+  const hasOverride = !!sessionModelInfo?.override_model
 
   // Merge history messages with live SSE blocks
   const pendingForActive = activeSessionId ? (pendingMessages[activeSessionId] || []) : []
@@ -281,6 +495,16 @@ export default function App() {
       return next
     })
   }
+
+  const activeSession = sessions.find(s => s.id === activeSessionId)
+  const docPayload = activeDoc ? {
+    title: activeDoc.title,
+    path: activeDoc.path,
+    content: docState.content,
+    loading: docState.loading,
+    error: docState.error,
+    truncated: docState.truncated,
+  } : null
 
   return (
     <div className="flex h-dvh bg-bg text-text-primary overflow-hidden">
@@ -309,14 +533,21 @@ export default function App() {
               onDeleteSession={handleDeleteSession}
               onRenameSession={handleRenameSession}
               searchFocusTrigger={searchFocusTrigger}
+              docs={docs}
+              extraDocs={extraDocs}
+              activeDocPath={activeDoc?.path || ''}
+              onSelectDoc={handleSelectDoc}
+              docsExpanded={docsExpanded}
+              onToggleDocs={() => setDocsExpanded(v => !v)}
+              onOpenSettings={() => setSettingsOpen(true)}
             />
           </div>
         </>
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between px-3 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] border-b border-border bg-bg">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-3 px-3 py-1.5 pt-[calc(0.375rem+env(safe-area-inset-top))] border-b border-border bg-bg">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={toggleSidebar}
               className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors"
@@ -325,21 +556,74 @@ export default function App() {
               {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
             </button>
 
-            {activeSessionId && (
-              <span className="text-xs text-text-secondary truncate max-w-xs">
-                {sessions.find(s => s.id === activeSessionId)?.title || 'Untitled'}
-              </span>
-            )}
+            <div className="min-w-0">
+              <div className="text-xs text-text-primary truncate max-w-[220px]">
+                {activeDoc?.title || activeSession?.title || 'fanfan'}
+              </div>
+              <div className="text-[10px] text-text-muted font-mono truncate max-w-[240px]">
+                {activeDoc?.path || activeSessionId || 'Select a chat or document'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 max-w-[420px]">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                ref={docSearchRef}
+                value={docSearch}
+                onChange={(e) => setDocSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleDocSearchSubmit()
+                  }
+                }}
+                placeholder="Search docs (Ctrl+P)"
+                list="doc-search-list"
+                className={cn(
+                  'w-full pl-8 pr-8 py-1.5 rounded text-xs',
+                  'bg-bg-secondary border border-border-soft text-text-primary',
+                  'placeholder:text-text-muted',
+                  'focus:outline-none focus:border-accent-blue'
+                )}
+              />
+              {docSearch && (
+                <button
+                  onClick={() => setDocSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                  aria-label="Clear search"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <datalist id="doc-search-list">
+              {[...docs, ...extraDocs].map((d) => (
+                <option key={d.path} value={d.path}>{d.title || d.path}</option>
+              ))}
+            </datalist>
           </div>
 
           <div className="flex items-center gap-1">
+            {activeDoc?.path && (
+              <button
+                onClick={handleCopyDocPath}
+                className="flex items-center gap-1 px-2 py-1 rounded border border-border-soft bg-bg-secondary text-text-muted hover:text-text-primary hover:border-border transition-colors"
+                title="Copy path"
+              >
+                {docCopied ? <Check size={13} /> : <Copy size={13} />}
+                <span className="hidden md:inline text-[11px]">Copy Path</span>
+              </button>
+            )}
+
             <button
               onClick={() => setSettingsOpen(true)}
               className="flex items-center gap-1 px-2 py-1 rounded border border-border-soft bg-bg-secondary text-text-muted hover:text-text-primary hover:border-border transition-colors"
               title="Model & API Settings"
             >
               <Settings size={14} />
-              <span className="text-[11px] font-mono max-w-[260px] truncate hidden md:inline">
+              <span className="text-[11px] font-mono max-w-[220px] truncate hidden md:inline">
                 {modelLabel || 'Model'}
               </span>
             </button>
@@ -400,6 +684,7 @@ export default function App() {
           streamingBlockId={eventState.streamingMessageId}
           viewMode={viewMode}
           status={isRunning ? 'running' : eventState.status}
+          doc={docPayload}
         />
 
         {activeSessionId && (
@@ -407,6 +692,13 @@ export default function App() {
             onSend={handleSend}
             onCancel={handleCancel}
             isRunning={isRunning}
+            modelValue={modelInput}
+            modelOptions={modelOptions}
+            onModelChange={setModelInput}
+            onApplyModel={handleApplyModel}
+            onClearModel={handleClearModel}
+            hasOverride={hasOverride}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
         )}
 
@@ -474,6 +766,7 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         onUpdated={() => {
           reloadConfig()
+          reloadDocs()
           reloadSessionModel(activeSessionId)
         }}
       />

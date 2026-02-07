@@ -36,7 +36,7 @@ from nanobot.web.runner import FanfanWebRunner
 from nanobot.web.settings import WebSettings, repo_root
 
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.2"
 
 
 def _now_iso() -> str:
@@ -485,6 +485,94 @@ cp ./config.example.json ~/.nanobot/config.json
 
         save_config(cfg)
         return _config_summary(cfg)
+
+    # ── Docs / Knowledge Base ─────────────────────────────────
+
+    _DOCS_DEFAULT = [
+        {"id": "project_guide", "title": "PROJECT_GUIDE.md", "path": "PROJECT_GUIDE.md"},
+        {"id": "nanobot_arch", "title": "Nanobot 架构方案", "path": "DESIGN.md"},
+        {"id": "full_flow", "title": "全流程实现", "path": "DEPLOY.md"},
+        {"id": "readme", "title": "README.md", "path": "README.md"},
+        {"id": "communication", "title": "COMMUNICATION.md", "path": "COMMUNICATION.md"},
+    ]
+
+    _DOCS_IGNORE_DIRS = {
+        ".git", ".hg", ".svn", ".venv", "node_modules", "__pycache__",
+        "dist", "build", ".mypy_cache", ".ruff_cache", ".pytest_cache",
+        "data", "workspace", ".cache", ".next", ".turbo", ".idea", ".vscode",
+    }
+
+    def _docs_root() -> Path:
+        return repo_root().resolve()
+
+    def _docs_default_paths() -> set[str]:
+        return {d["path"] for d in _DOCS_DEFAULT}
+
+    def _safe_doc_path(rel: str) -> Path | None:
+        if not rel:
+            return None
+        p = Path(rel).as_posix().lstrip("/")
+        root = _docs_root()
+        candidate = (root / p).resolve()
+        try:
+            if candidate.is_file() and candidate.is_relative_to(root):
+                return candidate
+        except Exception:
+            return None
+        return None
+
+    def _discover_docs(max_depth: int = 3) -> list[dict[str, str]]:
+        root = _docs_root()
+        out: list[dict[str, str]] = []
+        default_paths = _docs_default_paths()
+
+        for dirpath, dirnames, filenames in os.walk(root):
+            rel = Path(dirpath).resolve().relative_to(root)
+            depth = len(rel.parts) if str(rel) != '.' else 0
+            if depth > max_depth:
+                dirnames[:] = []
+                continue
+            dirnames[:] = [d for d in dirnames if d not in _DOCS_IGNORE_DIRS]
+
+            for fname in filenames:
+                if not fname.lower().endswith(".md"):
+                    continue
+                rel_path = (Path(dirpath) / fname).resolve().relative_to(root).as_posix()
+                if rel_path in default_paths:
+                    continue
+                doc_id = rel_path.replace('/', '_').replace('.', '_')
+                out.append({"id": doc_id, "title": fname, "path": rel_path})
+
+        return out
+
+    @app.get("/api/v2/docs")
+    async def list_docs_v2() -> dict[str, Any]:
+        root = _docs_root()
+        defaults: list[dict[str, Any]] = []
+        for doc in _DOCS_DEFAULT:
+            p = _safe_doc_path(doc["path"])
+            defaults.append({**doc, "exists": bool(p)})
+
+        extra = _discover_docs(max_depth=3)
+        return {"root": str(root), "default": defaults, "extra": extra}
+
+    @app.get("/api/v2/docs/file")
+    async def read_doc_v2(path: str) -> dict[str, Any]:
+        p = _safe_doc_path(path)
+        if p is None:
+            raise HTTPException(status_code=404, detail="doc not found")
+
+        raw = p.read_text(encoding="utf-8", errors="replace")
+        max_chars = 200_000
+        truncated = len(raw) > max_chars
+        content = raw[:max_chars]
+
+        return {
+            "path": p.resolve().relative_to(_docs_root()).as_posix(),
+            "title": p.name,
+            "content": content,
+            "truncated": truncated,
+        }
 
     # ── Sessions (v1 + v2) ───────────────────────────────────────
 

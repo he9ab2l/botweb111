@@ -5,10 +5,11 @@ import ToolUseBlock from './ToolUseBlock'
 import PatchBlock from './PatchBlock'
 import ErrorBlock from './ErrorBlock'
 import TraceDrawer from './TraceDrawer'
+import DocBlock from './DocBlock'
 import ScrollToBottom from './ScrollToBottom'
 import { cn } from '../lib/utils'
 
-export default function ChatTimeline({ blocks, streamingText, streamingBlockId, viewMode, status }) {
+export default function ChatTimeline({ blocks, streamingText, streamingBlockId, viewMode, status, doc }) {
   const isChat = viewMode === 'chat'
 
   // In chat mode, separate visible messages from execution trace
@@ -39,6 +40,17 @@ export default function ChatTimeline({ blocks, streamingText, streamingBlockId, 
         'mx-auto px-3 py-4',
         isChat ? 'max-w-chat' : 'max-w-3xl'
       )}>
+        {doc && (
+          <DocBlock
+            title={doc.title}
+            path={doc.path}
+            content={doc.content}
+            loading={doc.loading}
+            error={doc.error}
+            truncated={doc.truncated}
+          />
+        )}
+
         {visibleBlocks.length === 0 && !isStreaming && (
           <div className="flex flex-col items-center justify-center h-full py-24 text-center">
             <h2 className="text-sm text-text-secondary mb-1">fanfan</h2>
