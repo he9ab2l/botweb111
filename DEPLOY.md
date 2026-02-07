@@ -25,25 +25,34 @@ npm run build
 cd ..
 ```
 
-Note:
-
+Notes:
 - Run `npm` commands inside `frontend/` only. The backend does not use Node.
 - The build output goes to `nanobot/web/static/dist/` and is served by FastAPI.
 
 ## 4) Runtime config
 
-Create `~/.nanobot/config.json` and put your API and model settings.
+You can configure models and API keys in two ways:
 
-Quick start:
+Option A: WebUI Settings (recommended)
+- Start the server
+- Open the UI
+- Click `Settings`
+- Add provider API key and set the model
+
+Option B: Config file
 
 ```bash
 mkdir -p ~/.nanobot
 cp ./config.example.json ~/.nanobot/config.json
 ```
 
-Then edit `~/.nanobot/config.json` and set at least one provider `apiKey` (e.g. `providers.openrouter.apiKey`).
+Then edit `~/.nanobot/config.json` and set at least one provider `apiKey`.
 
-If the API key is not configured, opening the web UI will show a setup page instead of the chat UI.
+GLM/Z.ai example:
+- set `providers.zhipu.apiKey`
+- choose model `zai/glm-4`
+
+If the API key is not configured, the UI will still load, but model runs will fail until a key is set.
 
 ## 5) Start web service (example)
 
@@ -53,3 +62,9 @@ python -m uvicorn nanobot.web.app:create_app --factory --host 127.0.0.1 --port 9
 ```
 
 Then put Caddy/Nginx in front of `127.0.0.1:9936`.
+
+## 6) Optional: permissions mode
+
+From the UI Settings panel, choose:
+- Require Approval (tool execution prompts for each tool), or
+- Allow All Tools (all tool calls execute without prompts)

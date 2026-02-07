@@ -7,34 +7,51 @@ Stack:
 - Frontend: React + Vite + Tailwind
 - DB: SQLite (default)
 
-## What You Get (MVP)
+## What You Get
 
-- Two-stage WebUI (same-origin):
-  - UI served or reverse-proxied at `/`
-  - API at `/api/v2/*`
-- Global SSE event bus:
-  - `GET /event` (reconnect + replay)
-  - `connected` + `heartbeat`
-- Execution model:
-  - session -> turn -> step -> parts (events)
-  - OpenCode-style agent loop: tool_call -> tool_result -> continue -> final
+- OpenCode-style 3-column UI:
+  - left: sessions + docs
+  - center: chat/docs timeline
+  - right: inspector (Trace / Files / Context / Permissions)
+- View modes:
+  - Chat / Docs / Agent
+- Model management (saved on server):
+  - global default model
+  - per-session override
+  - editable via WebUI settings
+- Providers:
+  - OpenAI / Anthropic / OpenRouter / DeepSeek / Gemini / Groq / Moonshot / vLLM / GLM (Z.ai)
+  - GLM uses `zai/` prefix (example: `zai/glm-4`)
+- Docs/knowledge panel:
+  - built-in project docs + auto-discovered markdown
+  - APIs: `/api/v2/docs`, `/api/v2/docs/file?path=...`
 - Tools (with permissions):
   - `read_file`, `write_file`, `apply_patch`, `search`, `http_fetch`, `spawn_subagent`
-  - Permission gate: `deny | ask | allow` + UI approval modal
-  - No shell/CLI tool is exposed in the WebUI.
-- Inspector tabs:
-  - Trace / Files / Context / Permissions
+  - permission gate: `deny | ask | allow` + UI approval modal
+  - global permission mode toggle: require approval or allow all
+  - no shell/CLI tool exposed in the WebUI
 
 ## Quick Start
 
 ### 1) Configure LLM (required)
 
-Create `~/.nanobot/config.json` (copy from `config.example.json`) and set at least one provider apiKey:
+You can edit the config file or use the WebUI settings panel.
+
+Config file (copy template and fill at least one provider key):
 
 ```bash
 mkdir -p ~/.nanobot
 cp ./config.example.json ~/.nanobot/config.json
 ```
+
+WebUI settings (recommended):
+- open the UI
+- click `Settings`
+- add API key and choose model
+
+GLM/Z.ai example:
+- provider key: `providers.zhipu.apiKey`
+- model: `zai/glm-4` or `zai/glm-4-plus`
 
 ### 2) Build UI (static mode)
 
@@ -53,6 +70,7 @@ Open:
 
 Health:
 - `GET /healthz`
+- `GET /api/v2/health`
 
 ## Dev Mode (Two-Stage, Same-Origin)
 
@@ -78,16 +96,29 @@ Key variables:
 - `FANFAN_UI_URL`: remote UI origin when `remote`
 - `FANFAN_UI_DEV_SERVER_URL`: dev server origin when `dev`
 - `FANFAN_DB_PATH`: override DB path (default: `./data/fanfan.db`)
-- `FANFAN_FS_ROOT`: allowed root for file tools (`read_file`/`write_file`/`apply_patch`) (default: repo root)
+- `FANFAN_FS_ROOT`: allowed root for file tools (default: repo root)
 - `FANFAN_TOOL_POLICY_DEFAULT`: `deny | ask | allow`
 - `FANFAN_TOOL_POLICY_READ_FILE`, etc
 
 ## API (v2)
 
+Config / Models:
+- `GET /api/v2/config`
+- `POST /api/v2/config`
+- `GET /api/v2/sessions/{id}/model`
+- `POST /api/v2/sessions/{id}/model`
+- `DELETE /api/v2/sessions/{id}/model`
+
+Docs:
+- `GET /api/v2/docs`
+- `GET /api/v2/docs/file?path=...`
+
 Sessions:
 - `POST /api/v2/sessions`
 - `GET /api/v2/sessions`
 - `GET /api/v2/sessions/{id}`
+- `PATCH /api/v2/sessions/{id}`
+- `DELETE /api/v2/sessions/{id}`
 
 Turns:
 - `POST /api/v2/sessions/{id}/turns` `{ content }`
@@ -97,11 +128,16 @@ Events:
 - `GET /event?session_id=...&since=...` (SSE)
 - `GET /api/v2/sessions/{id}/events?since=...` (replay JSON)
 
+Permissions:
+- `GET /api/v2/permissions/mode`
+- `POST /api/v2/permissions/mode`
+- `GET /api/v2/sessions/{id}/permissions/pending`
+- `POST /api/v2/permissions/{request_id}/resolve`
+
 Inspector:
 - `GET /api/v2/sessions/{id}/file_changes`
 - `GET /api/v2/sessions/{id}/context`
-- `GET /api/v2/sessions/{id}/permissions/pending`
-- `POST /api/v2/permissions/{request_id}/resolve`
+- `GET /api/v2/sessions/{id}/terminal`
 
 FS (File Tree + Versions):
 - `GET /api/v2/sessions/{id}/fs/tree`
@@ -121,11 +157,13 @@ Export:
    - `curl -N http://localhost:4096/event`
 2. Streaming:
    - send a message, watch assistant text stream
-3. Permission modal:
+3. Permission mode:
+   - open `Settings` and toggle Require Approval / Allow All
+4. Permission modal:
    - ask fanfan to run a tool, approve once
-4. Subagent tree:
-   - ask fanfan to use `spawn_subagent` for a focused task, open the tool card and inspect nested events
-5. Diff + versions:
+5. Docs:
+   - open `Docs` mode and select a document from the sidebar
+6. Diff + versions:
    - ask to `write_file` or `apply_patch`, observe diff in timeline and Files tab
    - open Files tab, preview file versions, and rollback
 

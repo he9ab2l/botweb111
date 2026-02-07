@@ -52,12 +52,19 @@ Scope: MVP first (runnable end-to-end), then iterate toward the full checklist.
    - Permission gate (per tool): `deny` / `ask` / `allow`
      - `ask` triggers a UI approval modal and blocks tool execution until resolved
      - decisions can be "once / this session / always"
+   - Global permission mode:
+     - `ask` (require approval) or `allow` (run all tools without prompts)
+     - stored in DB and exposed via `/api/v2/permissions/mode`
 
 6. Frontend UX (OpenCode-like information architecture):
    - Three columns:
-     - left: session list
-     - center: chat timeline (Chat Mode) or full trace (Agent Mode)
+     - left: sessions + docs
+     - center: chat/docs timeline
      - right: Inspector tabs: Trace / Files / Context / Permissions
+   - View modes:
+     - Chat: conversation-only
+     - Docs: active document only
+     - Agent: full execution timeline
    - Streaming rendering:
      - `message_delta` appends incrementally
      - tool cards update per `tool_call`/`tool_result`
@@ -102,6 +109,18 @@ CSP:
 - `GET /healthz`
 - `GET /api/v2/health`
 
+### Config / Models
+- `GET /api/v2/config`
+- `POST /api/v2/config`
+- `GET /api/v2/sessions/{session_id}/model`
+- `POST /api/v2/sessions/{session_id}/model`
+- `DELETE /api/v2/sessions/{session_id}/model`
+
+### Docs
+- `GET /api/v2/docs`
+- `GET /api/v2/docs/file?path=...`
+
+
 ### SSE / Events
 - `GET /event`
   - Query:
@@ -134,7 +153,7 @@ CSP:
 
 ### Tools (registry/metadata)
 - `GET /api/v2/tools`
-  - returns schemas, current permission policy, enabled/disabled
+  - returns schemas, current permission policy, enabled/disabled, permission_mode
 
 ### Files / Artifacts (MVP subset)
 - `GET /api/v2/sessions/{session_id}/file_changes`
@@ -204,6 +223,8 @@ SQLite is default; Postgres can be added later with the same logical schema.
 
 - `sessions`
   - id, title, created_at, updated_at
+- `session_settings`
+  - session_id, model, updated_at
 - `turns`
   - id, session_id, user_text, created_at
 - `steps`

@@ -13,8 +13,22 @@
     "deepseek": {
       "apiKey": ""
     },
-    "zhipu": {
+    "gemini": {
       "apiKey": ""
+    },
+    "groq": {
+      "apiKey": ""
+    },
+    "moonshot": {
+      "apiKey": ""
+    },
+    "vllm": {
+      "apiKey": "",
+      "apiBase": ""
+    },
+    "zhipu": {
+      "apiKey": "",
+      "apiBase": ""
     }
   },
   "agents": {
