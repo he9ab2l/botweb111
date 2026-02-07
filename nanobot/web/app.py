@@ -996,9 +996,24 @@ cp ./config.example.json ~/.nanobot/config.json
         reg.register(SpawnSubagentTool(None))
         return reg
 
+    def _tool_def_name(d: dict[str, Any]) -> str | None:
+        if not isinstance(d, dict):
+            return None
+        fn = d.get('function')
+        if isinstance(fn, dict) and fn.get('name'):
+            return str(fn.get('name'))
+        if d.get('name'):
+            return str(d.get('name'))
+        return None
+
     def _tool_names() -> list[str]:
         reg = _tool_registry()
-        return [d.get('name') for d in reg.get_definitions() if d.get('name')]
+        names: list[str] = []
+        for d in reg.get_definitions():
+            name = _tool_def_name(d)
+            if name:
+                names.append(name)
+        return names
 
     def _permission_mode(tool_names: list[str]) -> str:
         perms = db.get_tool_permissions()
@@ -1031,7 +1046,11 @@ cp ./config.example.json ~/.nanobot/config.json
         reg = _tool_registry()
         defs = reg.get_definitions()
         perms = db.get_tool_permissions()
-        names = [d.get("name") for d in defs if d.get("name")]
+        names = []
+        for d in defs:
+            name = _tool_def_name(d)
+            if name:
+                names.append(name)
         return {
             "tools": defs,
             "tool_permissions": perms,
