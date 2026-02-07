@@ -67,10 +67,10 @@ def onboard():
     
     console.print(f"\n{__logo__} fanfan is ready!")
     console.print("\nNext steps:")
-    console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
+    console.print("  1. Add your API key to [cyan]~/.fanfan/config.json[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
     console.print("  2. Chat: [cyan]fanfan agent -m \"Hello!\"[/cyan]")
-    console.print("\n[dim]Want Telegram notifications? Configure channels.telegram in ~/.nanobot/config.json[/dim]")
+    console.print("\n[dim]Want Telegram notifications? Configure channels.telegram in ~/.fanfan/config.json[/dim]")
 
 
 
@@ -186,7 +186,7 @@ def gateway(
 
     if not api_key and not is_bedrock:
         console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.nanobot/config.json under providers.openrouter.apiKey")
+        console.print("Set one in ~/.fanfan/config.json under providers.openrouter.apiKey")
         raise typer.Exit(1)
     
     provider = LiteLLMProvider(

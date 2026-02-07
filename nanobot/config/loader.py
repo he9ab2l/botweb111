@@ -9,11 +9,19 @@ from nanobot.config.schema import Config
 
 def get_config_path() -> Path:
     """Get the default configuration file path."""
-    return Path.home() / ".nanobot" / "config.json"
+    new_path = Path.home() / ".fanfan" / "config.json"
+    if not new_path.exists():
+        # Check legacy path for backward compat
+        old_path = Path.home() / ".nanobot" / "config.json"
+        if old_path.exists():
+            # Trigger full migration via helpers
+            from nanobot.utils.helpers import get_data_path
+            get_data_path()
+    return new_path
 
 
 def get_data_dir() -> Path:
-    """Get the nanobot data directory."""
+    """Get the fanfan data directory."""
     from nanobot.utils.helpers import get_data_path
     return get_data_path()
 

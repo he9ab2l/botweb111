@@ -7,6 +7,7 @@ import { cn } from '../lib/utils'
  *
  * Auto-resize textarea, Enter to send, Shift+Enter for newline.
  * Focus ring uses accent-blue. Stop button uses status-error.
+ * Includes ModelSelector for quick model switching.
  */
 export default function InputArea({
   onSend,
@@ -53,7 +54,7 @@ export default function InputArea({
 
   return (
     <div className="border-t border-border-soft bg-bg p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-      <div className="max-w-chat mx-auto">
+      <div className="max-w-chat mx-auto space-y-1.5">
         <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}

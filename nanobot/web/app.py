@@ -381,13 +381,13 @@ def create_app() -> FastAPI:
           <p class="hint">The server is running, but LLM access is not configured yet.</p>
         </header>
         <div class="body">
-          <p>Create <span class="pill">~/.nanobot/config.json</span> and set at least one provider key (for example <code>providers.openrouter.apiKey</code>).</p>
-          <pre><code>mkdir -p ~/.nanobot
+          <p>Create <span class="pill">~/.fanfan/config.json</span> and set at least one provider key (for example <code>providers.openrouter.apiKey</code>).</p>
+          <pre><code>mkdir -p ~/.fanfan
 
 # From the project root:
-cp ./config.example.json ~/.nanobot/config.json
+cp ./config.example.json ~/.fanfan/config.json
 
-# Then edit ~/.nanobot/config.json and set your apiKey
+# Then edit ~/.fanfan/config.json and set your apiKey
 </code></pre>
           <p class="hint">After updating the config, restart the web service and refresh this page.</p>
           <div class="row">
@@ -1532,6 +1532,152 @@ cp ./config.example.json ~/.nanobot/config.json
         if not db.session_exists(session_id):
             raise HTTPException(status_code=404, detail="session not found")
         return await stream_event_bus(request, session_id=session_id, since=last_event_id)
+
+    # ── Config / Provider / Model Management (v2 provider endpoints) ──
+
+    # Known models per provider for auto-detection
+    KNOWN_MODELS = {
+        "openrouter": [
+            {"id": "openrouter/anthropic/claude-sonnet-4", "name": "Claude Sonnet 4"},
+            {"id": "openrouter/anthropic/claude-opus-4", "name": "Claude Opus 4"},
+            {"id": "openrouter/anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet"},
+            {"id": "openrouter/google/gemini-2.5-pro-preview", "name": "Gemini 2.5 Pro"},
+            {"id": "openrouter/google/gemini-2.5-flash-preview", "name": "Gemini 2.5 Flash"},
+            {"id": "openrouter/deepseek/deepseek-r1", "name": "DeepSeek R1"},
+            {"id": "openrouter/deepseek/deepseek-chat-v3", "name": "DeepSeek Chat V3"},
+            {"id": "openrouter/meta-llama/llama-4-maverick", "name": "Llama 4 Maverick"},
+            {"id": "openrouter/openai/gpt-4.1", "name": "GPT-4.1"},
+            {"id": "openrouter/openai/o4-mini", "name": "o4-mini"},
+            {"id": "openrouter/stepfun/step-3.5-flash:free", "name": "StepFun 3.5 Flash (Free)"},
+        ],
+        "anthropic": [
+            {"id": "anthropic/claude-opus-4-5", "name": "Claude Opus 4.5"},
+            {"id": "anthropic/claude-sonnet-4-5", "name": "Claude Sonnet 4.5"},
+            {"id": "anthropic/claude-sonnet-4-20250514", "name": "Claude Sonnet 4"},
+            {"id": "anthropic/claude-haiku-3-5", "name": "Claude Haiku 3.5"},
+        ],
+        "openai": [
+            {"id": "openai/gpt-4.1", "name": "GPT-4.1"},
+            {"id": "openai/gpt-4.1-mini", "name": "GPT-4.1 Mini"},
+            {"id": "openai/gpt-4.1-nano", "name": "GPT-4.1 Nano"},
+            {"id": "openai/o4-mini", "name": "o4-mini"},
+            {"id": "openai/o3", "name": "o3"},
+            {"id": "openai/o3-mini", "name": "o3-mini"},
+        ],
+        "deepseek": [
+            {"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat"},
+            {"id": "deepseek/deepseek-reasoner", "name": "DeepSeek Reasoner"},
+        ],
+        "gemini": [
+            {"id": "gemini/gemini-2.5-pro-preview-06-05", "name": "Gemini 2.5 Pro"},
+            {"id": "gemini/gemini-2.5-flash-preview-05-20", "name": "Gemini 2.5 Flash"},
+            {"id": "gemini/gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
+        ],
+        "groq": [
+            {"id": "groq/llama-3.3-70b-versatile", "name": "Llama 3.3 70B"},
+            {"id": "groq/llama-3.1-8b-instant", "name": "Llama 3.1 8B"},
+            {"id": "groq/gemma2-9b-it", "name": "Gemma 2 9B"},
+        ],
+        "zhipu": [
+            {"id": "zhipu/glm-4-plus", "name": "GLM-4 Plus"},
+            {"id": "zhipu/glm-4-flash", "name": "GLM-4 Flash"},
+            {"id": "zai/glm-4.7", "name": "GLM-4.7"},
+            {"id": "zai/glm-4", "name": "GLM-4"},
+        ],
+        "moonshot": [
+            {"id": "moonshot/moonshot-v1-auto", "name": "Moonshot V1 Auto"},
+        ],
+    }
+
+    class _ProviderUpdatePayload(BaseModel):
+        api_key: str = ""
+        api_base: str | None = None
+
+    class _ModelSelectPayload(BaseModel):
+        model: str = Field(min_length=1)
+
+    @app.get("/api/v2/providers")
+    async def list_providers() -> dict[str, Any]:
+        """List all providers with connection status."""
+        cfg = _load_cfg()
+        providers_list = []
+        provider_names = ["anthropic", "openai", "openrouter", "deepseek", "gemini", "groq", "zhipu", "moonshot"]
+        for name in provider_names:
+            prov = getattr(cfg.providers, name)
+            connected = bool(prov.api_key)
+            hint = ""
+            if connected and len(prov.api_key) > 4:
+                hint = prov.api_key[-4:]
+            providers_list.append({
+                "id": name,
+                "name": name.title(),
+                "connected": connected,
+                "has_api_key": connected,
+                "key_hint": hint,
+                "api_base": prov.api_base or None,
+            })
+        return {"providers": providers_list}
+
+    @app.put("/api/v2/providers/{provider_id}")
+    async def update_provider_v2(provider_id: str, payload: _ProviderUpdatePayload) -> dict[str, Any]:
+        """Update provider API key and base URL. Persists to config file."""
+        valid_providers = ["anthropic", "openai", "openrouter", "deepseek", "gemini", "groq", "zhipu", "moonshot"]
+        if provider_id not in valid_providers:
+            raise HTTPException(status_code=400, detail=f"Unknown provider: {provider_id}")
+
+        cfg = _load_cfg()
+        prov = getattr(cfg.providers, provider_id)
+        if payload.api_key:
+            prov.api_key = payload.api_key
+        if payload.api_base is not None:
+            prov.api_base = payload.api_base or None
+        setattr(cfg.providers, provider_id, prov)
+        save_config(cfg)
+
+        return {"ok": True, "provider": provider_id, "connected": bool(prov.api_key)}
+
+    @app.delete("/api/v2/providers/{provider_id}")
+    async def disconnect_provider_v2(provider_id: str) -> dict[str, Any]:
+        """Remove provider API key."""
+        valid_providers = ["anthropic", "openai", "openrouter", "deepseek", "gemini", "groq", "zhipu", "moonshot"]
+        if provider_id not in valid_providers:
+            raise HTTPException(status_code=400, detail=f"Unknown provider: {provider_id}")
+
+        cfg = _load_cfg()
+        prov = getattr(cfg.providers, provider_id)
+        prov.api_key = ""
+        prov.api_base = None
+        setattr(cfg.providers, provider_id, prov)
+        save_config(cfg)
+
+        return {"ok": True, "provider": provider_id, "connected": False}
+
+    @app.get("/api/v2/models")
+    async def list_models() -> dict[str, Any]:
+        """List available models based on connected providers."""
+        cfg = _load_cfg()
+        available = []
+        provider_names = ["anthropic", "openai", "openrouter", "deepseek", "gemini", "groq", "zhipu", "moonshot"]
+        for name in provider_names:
+            prov = getattr(cfg.providers, name)
+            if prov.api_key:
+                models = KNOWN_MODELS.get(name, [])
+                for m in models:
+                    available.append({**m, "provider": name})
+
+        return {
+            "models": available,
+            "current": cfg.agents.defaults.model,
+        }
+
+    @app.put("/api/v2/model")
+    async def set_model_v2(payload: _ModelSelectPayload) -> dict[str, Any]:
+        """Set the active model. Persists to config file."""
+        cfg = _load_cfg()
+        cfg.agents.defaults.model = payload.model
+        save_config(cfg)
+
+        return {"ok": True, "model": payload.model}
 
     # ── UI serving / proxy ────────────────────────────────────────
 

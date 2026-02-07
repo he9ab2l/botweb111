@@ -21,7 +21,7 @@ class ChannelsConfig(BaseModel):
 
 class AgentDefaults(BaseModel):
     """Default agent configuration."""
-    workspace: str = "~/.nanobot/workspace"
+    workspace: str = "~/.fanfan/workspace"
     model: str = "anthropic/claude-opus-4-5"
     max_tokens: int = 8192
     temperature: float = 0.7
@@ -82,7 +82,7 @@ class ToolsConfig(BaseModel):
 
 
 class Config(BaseSettings):
-    """Root configuration for nanobot."""
+    """Root configuration for fanfan."""
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
@@ -149,5 +149,5 @@ class Config(BaseSettings):
         return None
     
     class Config:
-        env_prefix = "NANOBOT_"
+        env_prefix = "FANFAN_"
         env_nested_delimiter = "__"

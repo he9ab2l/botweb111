@@ -1,6 +1,5 @@
 import { createClient } from '../sdk/client'
 
-// Single entry point for REST + SSE
 export const client = createClient()
 
 export const createSession = client.createSession
@@ -9,7 +8,6 @@ export const getSession = client.getSession
 export const renameSession = client.renameSession
 export const deleteSession = client.deleteSession
 
-// v2: sending a message creates a turn
 export async function sendMessage(sessionId, content) {
   return client.createTurn(sessionId, content)
 }
@@ -55,6 +53,7 @@ export async function deleteMemory(key) {
   return res.json()
 }
 
+
 export function connectSSE(sessionId, lastEventId, onEvent, onError) {
   const since = lastEventId != null && lastEventId !== '' ? Number(lastEventId) : null
   return client.subscribeEvents({
@@ -74,3 +73,10 @@ export const listPendingPermissions = client.listPendingPermissions
 export const resolvePermission = client.resolvePermission
 
 export const setContextPinnedRef = client.setContextPinnedRef
+
+// Provider/Model API (used by SettingsDialog)
+export const listProviders = client.listProviders
+export const updateProvider = client.updateProvider
+export const disconnectProvider = client.disconnectProvider
+export const listModels = client.listModels
+export const setModel = client.setModel

@@ -13,40 +13,26 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        name: 'fanfan',
-        short_name: 'fanfan',
-        description: 'A self-hosted AI agent with an OpenCode-style web UI',
+        name: 'FanBot',
+        short_name: 'FanBot',
+        description: 'FanBot - AI Assistant by FanFan',
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        background_color: '#f7f7f6',
-        theme_color: '#f7f7f6',
+        orientation: 'portrait',
+        background_color: '#ffffff',
+        theme_color: '#ffffff',
         icons: [
-          {
-            src: '/icons/icon-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-          },
-          {
-            src: '/icons/icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-          },
-          {
-            src: '/icons/icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
         navigateFallback: '/index.html',
         runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith('/api'),
-            handler: 'NetworkOnly',
-          },
+          { urlPattern: ({ url }) => url.pathname.startsWith('/api'), handler: 'NetworkOnly' },
+          { urlPattern: ({ url }) => url.pathname.startsWith('/event'), handler: 'NetworkOnly' },
         ],
       },
     }),
@@ -57,12 +43,7 @@ export default defineConfig({
   },
   server: {
     port: 4444,
-    hmr: {
-      port: 4444,
-      clientPort: 4444,
-    },
-    proxy: {
-      '/api': 'http://127.0.0.1:4096',
-    },
+    hmr: { port: 4444, clientPort: 4444 },
+    proxy: { '/api': 'http://127.0.0.1:4096', '/event': 'http://127.0.0.1:4096' },
   },
 })

@@ -51,6 +51,13 @@ export type Client = {
 
   listPendingPermissions: (sessionId: string) => Promise<any[]>
   resolvePermission: (requestId: string, status: 'approved' | 'denied', scope: 'once' | 'session' | 'always') => Promise<any>
+
+  // Provider/Model management
+  listProviders: () => Promise<any>
+  updateProvider: (providerId: string, data: { api_key?: string; api_base?: string | null }) => Promise<any>
+  disconnectProvider: (providerId: string) => Promise<any>
+  listModels: () => Promise<any>
+  setModel: (model: string) => Promise<any>
 }
 
 export function createClient(opts: { baseUrl?: string; fetch?: FetchLike } = {}): Client {
@@ -175,6 +182,14 @@ export function createClient(opts: { baseUrl?: string; fetch?: FetchLike } = {})
     listPendingPermissions: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/permissions/pending`),
     resolvePermission: (requestId, status, scope) =>
       api(`/permissions/${encodeURIComponent(requestId)}/resolve`, { method: 'POST', body: { status, scope } }),
+
+    // Provider/Model management
+    listProviders: () => api('/providers'),
+    updateProvider: (providerId, data) =>
+      api(`/providers/${encodeURIComponent(providerId)}`, { method: 'PUT', body: data }),
+    disconnectProvider: (providerId) =>
+      api(`/providers/${encodeURIComponent(providerId)}`, { method: 'DELETE' }),
+    listModels: () => api('/models'),
+    setModel: (model) => api('/model', { method: 'PUT', body: { model } }),
   }
 }
-

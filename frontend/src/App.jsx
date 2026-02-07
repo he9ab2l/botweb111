@@ -733,6 +733,14 @@ export default function App() {
             </div>
 
             <button
+              onClick={() => setSettingsOpen(true)}
+              className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors"
+              title="Settings"
+            >
+              <Settings size={16} />
+            </button>
+
+            <button
               onClick={toggleInspector}
               className={cn(
                 'p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors ml-1',
