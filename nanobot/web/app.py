@@ -36,7 +36,7 @@ from nanobot.web.runner import FanfanWebRunner
 from nanobot.web.settings import WebSettings, repo_root
 
 
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.4.3"
 
 
 def _now_iso() -> str:
@@ -518,6 +518,12 @@ cp ./config.example.json ~/.nanobot/config.json
         p = Path(rel).as_posix().lstrip("/")
         root = _docs_root()
         candidate = (root / p).resolve()
+
+        # Docs API is intentionally restricted to markdown to avoid accidental secret leaks
+        # (e.g. reading .git/config or other non-doc files under the repo root).
+        if candidate.suffix.lower() not in (".md", ".markdown"):
+            return None
+
         try:
             if candidate.is_file() and candidate.is_relative_to(root):
                 return candidate
