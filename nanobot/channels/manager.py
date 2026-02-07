@@ -48,7 +48,7 @@ class ChannelManager:
         # Only Telegram is supported in this deployment.
     
     async def start_all(self) -> None:
-        """Start WhatsApp channel and the outbound dispatcher."""
+        """Start all enabled channels and the outbound dispatcher."""
         if not self.channels:
             logger.warning("No channels enabled")
             return
@@ -56,7 +56,7 @@ class ChannelManager:
         # Start outbound dispatcher
         self._dispatch_task = asyncio.create_task(self._dispatch_outbound())
         
-        # Start WhatsApp channel
+        # Start enabled channels
         tasks = []
         for name, channel in self.channels.items():
             logger.info(f"Starting {name} channel...")

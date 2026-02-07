@@ -1,40 +1,37 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# syntax=docker/dockerfile:1
 
-# Install Node.js 20 for the WhatsApp bridge
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg git && \
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends nodejs && \
-    apt-get purge -y gnupg && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+# Build the fanfan WebUI assets
+FROM node:20-bookworm-slim AS ui
+WORKDIR /app
 
+COPY frontend/package.json frontend/package-lock.json frontend/
+RUN cd frontend && npm ci
+
+COPY frontend/ frontend/
+RUN mkdir -p nanobot/web/static
+RUN cd frontend && npm run build
+
+
+# Runtime
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 WORKDIR /app
 
 # Install Python dependencies first (cached layer)
 COPY pyproject.toml README.md LICENSE ./
-RUN mkdir -p nanobot bridge && touch nanobot/__init__.py && \
+RUN mkdir -p nanobot && touch nanobot/__init__.py && \
     uv pip install --system --no-cache . && \
-    rm -rf nanobot bridge
+    rm -rf nanobot
 
-# Copy the full source and install
+# Copy source
 COPY nanobot/ nanobot/
-COPY bridge/ bridge/
+
+# Copy built UI
+COPY --from=ui /app/nanobot/web/static/dist nanobot/web/static/dist
+
+# Install the project (scripts, package metadata)
 RUN uv pip install --system --no-cache .
 
-# Build the WhatsApp bridge
-WORKDIR /app/bridge
-RUN npm install && npm run build
-WORKDIR /app
+EXPOSE 4096
+ENV FANFAN_UI_MODE=static
 
-# Create config directory
-RUN mkdir -p /root/.nanobot
-
-# Gateway default port
-EXPOSE 18790
-
-ENTRYPOINT ["nanobot"]
-CMD ["status"]
+CMD ["python", "-m", "uvicorn", "nanobot.web.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "4096", "--log-level", "info"]

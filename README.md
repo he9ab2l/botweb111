@@ -77,6 +77,7 @@ Key variables:
 - `FANFAN_UI_URL`: remote UI origin when `remote`
 - `FANFAN_UI_DEV_SERVER_URL`: dev server origin when `dev`
 - `FANFAN_DB_PATH`: override DB path (default: `./data/fanfan.db`)
+- `FANFAN_FS_ROOT`: allowed root for file tools (`read_file`/`write_file`/`apply_patch`) (default: repo root)
 - `FANFAN_TOOL_POLICY_DEFAULT`: `deny | ask | allow`
 - `FANFAN_TOOL_POLICY_RUN_COMMAND`, etc
 
