@@ -10,6 +10,7 @@ This runner implements an OpenCode-style agent loop:
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import time
 import uuid
@@ -215,6 +216,167 @@ class FanfanWebRunner:
         except Exception:
             return str(p)
 
+
+    def _sha256_text(self, text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+    def _truncate_for_prompt(self, text: str, max_chars: int) -> tuple[str, bool]:
+        if max_chars <= 0:
+            return ("", True)
+        if len(text) <= max_chars:
+            return (text, False)
+        return (text[:max_chars] + "\n\n...(truncated)...", True)
+
+    async def _summarize_text_for_context(self, *, title: str, content: str) -> str:
+        """Summarize large pinned content into a compact, prompt-friendly digest."""
+
+        # Keep this strict and stable: the summary is cached and reused across turns.
+        sys = (
+            "You summarize developer docs/code into a compact context digest for a coding agent.\n"
+            "Output Markdown. Focus on: key goals, constraints, APIs, configs, and any rules.\n"
+            "Do not include long excerpts. Keep it short and actionable."
+        )
+        user = f"Title: {title}\n\nContent:\n{content}"
+
+        try:
+            resp = await self._provider.chat(
+                messages=[
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": user},
+                ],
+                tools=None,
+                model=self._model,
+                max_tokens=900,
+                temperature=0.2,
+            )
+            # Some providers may return tool calls even if tools=None; ignore them.
+            return (resp.content or "").strip()
+        except Exception as e:
+            logger.warning("Pinned context summarization failed: {}", str(e))
+            return ""
+
+    async def _build_pinned_context(self, *, session_id: str) -> str:
+        """Build a pinned-context section for injection into the system prompt."""
+
+        rows = self._db.list_context_items(session_id, limit=500)
+        pinned = [r for r in rows if bool(r.get("pinned"))]
+        if not pinned:
+            return ""
+
+        # Stable order: oldest first, dedup by (kind, content_ref)
+        pinned = list(reversed(pinned))
+        seen: set[tuple[str, str]] = set()
+        items: list[dict[str, Any]] = []
+        for r in pinned:
+            kind = str(r.get("kind") or "")
+            ref = str(r.get("content_ref") or "")
+            key = (kind, ref)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(r)
+
+        # Safety/latency caps (char-based; token-based would require provider-specific tokenizers)
+        max_items = 12
+        total_char_budget = 60000
+        summary_trigger_chars = 12000
+        raw_item_char_cap = 18000
+
+        parts: list[str] = []
+        used_chars = 0
+
+        parts.append(
+            "# Pinned Context\n"
+            "The following items were explicitly pinned by the user for this session.\n"
+            "Use them as high-priority background. If content is truncated or summarized, you can use tools to open the full source.\n"
+        )
+
+        for r in items[:max_items]:
+            cid = str(r.get("id") or "")
+            kind = str(r.get("kind") or "").strip().lower()
+            title = str(r.get("title") or "")
+            ref = str(r.get("content_ref") or "")
+
+            header = f"## {title or ref or cid}\nkind: {kind}\nref: {ref}\n"
+
+            body = ""
+            note_bits: list[str] = []
+
+            if kind in ("doc", "file"):
+                rp = None
+
+                if kind == "doc":
+                    raw = Path(ref).as_posix().lstrip("/")
+                    if raw and ".." not in Path(raw).parts:
+                        root = repo_root().resolve()
+                        candidate = (root / raw).resolve()
+                        try:
+                            ok = candidate.is_relative_to(root)
+                        except Exception:
+                            ok = str(candidate).startswith(str(root))
+                        if ok and candidate.is_file() and candidate.suffix.lower() in (".md", ".markdown"):
+                            rp = candidate
+                else:
+                    rp = self._resolve_fs_path(ref)
+                if rp is None or (not rp.exists()) or (not rp.is_file()):
+                    body = "(Missing file)"
+                else:
+                    content = _read_file_best_effort(rp)
+                    sha = self._sha256_text(content)
+
+                    if len(content) > summary_trigger_chars:
+                        cached_sum = str(r.get("summary") or "")
+                        cached_sha = str(r.get("summary_sha256") or "")
+                        if cached_sum and cached_sha == sha:
+                            body = cached_sum
+                            note_bits.append("summary=cached")
+                        else:
+                            # Summarize and cache
+                            summary = await self._summarize_text_for_context(title=title or ref, content=content)
+                            if summary:
+                                try:
+                                    self._db.update_context_summary(cid, summary=summary, summary_sha256=sha)
+                                except Exception:
+                                    pass
+                                body = summary
+                                note_bits.append("summary=generated")
+                            else:
+                                body, truncated = self._truncate_for_prompt(content, raw_item_char_cap)
+                                if truncated:
+                                    note_bits.append("truncated")
+                    else:
+                        body, truncated = self._truncate_for_prompt(content, raw_item_char_cap)
+                        if truncated:
+                            note_bits.append("truncated")
+
+            elif kind == "web":
+                cached_sum = str(r.get("summary") or "")
+                if cached_sum:
+                    body = cached_sum
+                    note_bits.append("summary=cached")
+                else:
+                    body = "(Pinned URL only. Use http_fetch to read the page if needed.)"
+
+            else:
+                body = "(Unsupported pinned context kind)"
+
+            meta = ""
+            if note_bits:
+                meta = f"notes: {', '.join(note_bits)}\n"
+
+            section = header + meta + "\n" + body.strip() + "\n\n---\n"
+
+            if used_chars + len(section) > total_char_budget:
+                parts.append("\n(Additional pinned context omitted due to size limits.)\n")
+                break
+
+            parts.append(section)
+            used_chars += len(section)
+
+        return "\n".join(parts).strip() + "\n"
+
+
+
     async def run_turn(self, *, session_id: str, turn_id: str, user_text: str) -> str:
         """Run a single user turn (async task). Returns final assistant text."""
         # Step 0: persist and emit user message
@@ -241,6 +403,10 @@ class FanfanWebRunner:
 
         # Keep the prompt aligned with the web runner tool set (no shell exec).
         if messages and isinstance(messages[0].get("content"), str):
+            pinned_section = await self._build_pinned_context(session_id=session_id)
+            if pinned_section:
+                messages[0]["content"] += "\n\n---\n\n" + pinned_section
+
             messages[0]["content"] += (
                 "\n\n## Web Tools\n"
                 "Available tools: read_file, write_file, apply_patch, search, http_fetch, spawn_subagent.\n"
@@ -762,6 +928,9 @@ class FanfanWebRunner:
         tools.register(HttpFetchTool())
 
         sys = self._context.build_system_prompt()
+        pinned_section = await self._build_pinned_context(session_id=session_id)
+        if pinned_section:
+            sys += "\n\n---\n\n" + pinned_section
         sys += (
             "\n\n# Subagent\n"
             "You are a subagent running inside a parent tool call.\n\n"

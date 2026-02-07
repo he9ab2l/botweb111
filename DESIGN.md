@@ -71,6 +71,11 @@ Scope: MVP first (runnable end-to-end), then iterate toward the full checklist.
      - diffs render with highlight and fold
      - subagent trees render inside the parent tool card
 
+7. Pinned context injection:
+   - The UI can pin docs/files/URLs as context items
+   - The backend injects pinned items into the system prompt on every LLM call
+   - Large pinned items are summarized and cached (sha256-based)
+
 ## Two-Stage WebUI Architecture
 
 ### Runtime Modes
@@ -161,6 +166,7 @@ CSP:
 - `GET /api/v2/sessions/{session_id}/context`
 - `POST /api/v2/sessions/{session_id}/context/pin`
 - `POST /api/v2/sessions/{session_id}/context/unpin`
+- `POST /api/v2/sessions/{session_id}/context/set_pinned_ref`
 
 ### Permissions
 - `GET /api/v2/sessions/{session_id}/permissions/pending`

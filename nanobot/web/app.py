@@ -82,6 +82,13 @@ class ContextPinRequest(BaseModel):
     context_id: str = Field(min_length=1)
 
 
+class ContextPinnedRefRequest(BaseModel):
+    kind: str = Field(min_length=1, max_length=32)
+    title: str = Field(min_length=1, max_length=200)
+    content_ref: str = Field(min_length=1, max_length=4096)
+    pinned: bool = True
+
+
 class FsRollbackRequest(BaseModel):
     path: str = Field(min_length=1)
     version_id: str = Field(min_length=1)
@@ -1105,6 +1112,61 @@ cp ./config.example.json ~/.nanobot/config.json
             raise HTTPException(status_code=404, detail="session not found")
         db.set_context_pinned(payload.context_id, False)
         return {"ok": True}
+
+    @app.post("/api/v2/sessions/{session_id}/context/set_pinned_ref")
+    async def set_context_pinned_ref(session_id: str, payload: ContextPinnedRefRequest) -> dict[str, Any]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+
+        kind = (payload.kind or "").strip().lower()
+        if kind not in ("doc", "file", "web"):
+            raise HTTPException(status_code=400, detail="invalid kind")
+
+        ref = (payload.content_ref or "").strip()
+        title = (payload.title or "").strip()
+        pinned = bool(payload.pinned)
+
+        if kind == "doc":
+            # Docs are restricted to markdown under the repo root (same rules as /api/v2/docs/file).
+            safe = _safe_doc_path(ref)
+            if safe is None:
+                raise HTTPException(status_code=404, detail="file not found")
+            ref = safe.resolve().relative_to(_docs_root()).as_posix()
+
+        if kind == "file":
+            # Restrict context refs to existing files within FANFAN_FS_ROOT.
+            raw = Path(ref).as_posix().lstrip("/")
+            if not raw or ".." in Path(raw).parts:
+                raise HTTPException(status_code=400, detail="invalid content_ref")
+
+            fs_root = settings.resolved_fs_root().expanduser().resolve()
+            candidate = (fs_root / raw).resolve()
+
+            try:
+                ok = candidate.is_relative_to(fs_root)
+            except Exception:
+                ok = str(candidate).startswith(str(fs_root))
+
+            if not ok or not candidate.is_file():
+                raise HTTPException(status_code=404, detail="file not found")
+
+            ref = candidate.relative_to(fs_root).as_posix()
+
+        if kind == "web":
+            if not (ref.startswith("http://") or ref.startswith("https://")):
+                raise HTTPException(status_code=400, detail="invalid url")
+
+        if not title:
+            title = ref
+
+        item = db.upsert_context_item_by_ref(
+            session_id=session_id,
+            kind=kind,
+            title=title,
+            content_ref=ref,
+            pinned=pinned,
+        )
+        return item
 
     # ── FS (File Tree + Versions) ────────────────────────────────
 

@@ -27,6 +27,8 @@ import {
   resolvePermission,
   getDocs,
   getDocFile,
+  listContext,
+  setContextPinnedRef,
 } from './lib/api'
 import { cn, copyToClipboard } from './lib/utils'
 import Sidebar from './components/Sidebar'
@@ -65,6 +67,12 @@ export default function App() {
   const [docCopied, setDocCopied] = useState(false)
   const docSearchRef = useRef(null)
   const docRequestId = useRef(0)
+
+  const [inspectorRefreshNonce, setInspectorRefreshNonce] = useState(0)
+
+  const [docPinned, setDocPinned] = useState(false)
+  const [docPinBusy, setDocPinBusy] = useState(false)
+  const [docPinError, setDocPinError] = useState('')
 
   // Model/config state
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -214,6 +222,37 @@ export default function App() {
       })
   }, [activeDoc])
 
+  // Load doc pinned state (per-session)
+  useEffect(() => {
+    let cancelled = false
+
+    if (!activeSessionId || !activeDoc?.path) {
+      setDocPinned(false)
+      return () => { cancelled = true }
+    }
+
+    listContext(activeSessionId)
+      .then((items) => {
+        if (cancelled) return
+        const ref = String(activeDoc.path || '')
+        const match = (items || []).find((ci) => {
+          if (!ci) return false
+          const kind = String(ci.kind || '')
+          const cref = String(ci.content_ref || '')
+          const pinned = !!ci.pinned
+          return pinned && (kind === 'doc' || kind === 'file') && cref === ref
+        })
+        setDocPinned(!!match)
+      })
+      .catch(() => {
+        if (!cancelled) setDocPinned(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeSessionId, activeDoc?.path, inspectorRefreshNonce])
+
   useEffect(() => {
     if (activeDoc?.path) setDocSearch(activeDoc.path)
   }, [activeDoc?.path])
@@ -353,6 +392,27 @@ export default function App() {
       setTimeout(() => setDocCopied(false), 1500)
     }
   }, [activeDoc])
+
+  const handleToggleDocPin = useCallback(async () => {
+    if (!activeSessionId || !activeDoc?.path) return
+    setDocPinBusy(true)
+    setDocPinError('')
+    const nextPinned = !docPinned
+    try {
+      await setContextPinnedRef(activeSessionId, {
+        kind: 'doc',
+        title: activeDoc.title || activeDoc.path,
+        content_ref: activeDoc.path,
+        pinned: nextPinned,
+      })
+      setDocPinned(nextPinned)
+      setInspectorRefreshNonce((n) => n + 1)
+    } catch (e) {
+      setDocPinError(e?.message || 'Failed to update pin')
+    } finally {
+      setDocPinBusy(false)
+    }
+  }, [activeSessionId, activeDoc, docPinned])
 
   const handleApplyModel = useCallback(async () => {
     if (!activeSessionId) return
@@ -504,6 +564,11 @@ export default function App() {
     loading: docState.loading,
     error: docState.error,
     truncated: docState.truncated,
+    pinned: docPinned,
+    canPin: !!activeSessionId,
+    pinBusy: docPinBusy,
+    pinError: docPinError,
+    onTogglePin: handleToggleDocPin,
   } : null
 
   return (
@@ -752,6 +817,7 @@ export default function App() {
               connectionStatus={eventState.connectionStatus}
               status={eventState.status}
               blocks={allBlocks}
+              refreshNonce={inspectorRefreshNonce}
             />
           </div>
         </>

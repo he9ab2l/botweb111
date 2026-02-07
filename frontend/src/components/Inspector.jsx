@@ -24,6 +24,7 @@ export default function Inspector({
   connectionStatus,
   status,
   blocks,
+  refreshNonce,
 }) {
   const [tab, setTab] = useState('Trace')
   const [fileChanges, setFileChanges] = useState([])
@@ -121,6 +122,12 @@ export default function Inspector({
     refreshTabData(tab).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
+
+  useEffect(() => {
+    if (!sessionId) return
+    refreshTabData(tab).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshNonce])
 
   useEffect(() => {
     if (!sessionId) return

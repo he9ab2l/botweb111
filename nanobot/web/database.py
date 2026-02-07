@@ -221,6 +221,18 @@ class Database:
                 """
             )
 
+            # v2 migrations: add new columns if missing
+            try:
+                ctx_cols = self._table_columns("context_items")
+                if "summary" not in ctx_cols:
+                    conn.execute("ALTER TABLE context_items ADD COLUMN summary TEXT NOT NULL DEFAULT ''")
+                if "summary_sha256" not in ctx_cols:
+                    conn.execute("ALTER TABLE context_items ADD COLUMN summary_sha256 TEXT NOT NULL DEFAULT ''")
+                if "summary_updated_at" not in ctx_cols:
+                    conn.execute("ALTER TABLE context_items ADD COLUMN summary_updated_at TEXT NOT NULL DEFAULT ''")
+            except Exception:
+                pass
+
             conn.commit()
 
     # ── Sessions ──────────────────────────────────────────────────
@@ -836,6 +848,73 @@ class Database:
                     d["input"] = {}
                 out.append(d)
             return out
+
+    def get_context_item(self, context_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            conn = self._get_conn()
+            row = conn.execute("SELECT * FROM context_items WHERE id = ?", (context_id,)).fetchone()
+            return dict(row) if row else None
+
+    def find_context_item_by_ref(self, session_id: str, kind: str, content_ref: str) -> dict[str, Any] | None:
+        with self._lock:
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT * FROM context_items WHERE session_id = ? AND kind = ? AND content_ref = ? ORDER BY created_at DESC LIMIT 1",
+                (session_id, kind, content_ref),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def upsert_context_item_by_ref(
+        self,
+        *,
+        session_id: str,
+        kind: str,
+        title: str,
+        content_ref: str,
+        pinned: bool,
+    ) -> dict[str, Any]:
+        with self._lock:
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT * FROM context_items WHERE session_id = ? AND kind = ? AND content_ref = ? ORDER BY created_at DESC LIMIT 1",
+                (session_id, kind, content_ref),
+            ).fetchone()
+
+            if row:
+                cid = str(row["id"])
+                conn.execute(
+                    "UPDATE context_items SET title = ?, pinned = ? WHERE id = ?",
+                    (title, 1 if pinned else 0, cid),
+                )
+                conn.commit()
+                updated = conn.execute("SELECT * FROM context_items WHERE id = ?", (cid,)).fetchone()
+                return dict(updated) if updated else dict(row)
+
+            cid = f"ctx_{uuid.uuid4().hex[:12]}"
+            now = _now_iso()
+            conn.execute(
+                "INSERT INTO context_items (id, session_id, kind, title, content_ref, pinned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cid, session_id, kind, title, content_ref, 1 if pinned else 0, now),
+            )
+            conn.commit()
+            return {
+                "id": cid,
+                "session_id": session_id,
+                "kind": kind,
+                "title": title,
+                "content_ref": content_ref,
+                "pinned": 1 if pinned else 0,
+                "created_at": now,
+            }
+
+    def update_context_summary(self, context_id: str, *, summary: str, summary_sha256: str) -> None:
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                "UPDATE context_items SET summary = ?, summary_sha256 = ?, summary_updated_at = ? WHERE id = ?",
+                (summary, summary_sha256, _now_iso(), context_id),
+            )
+            conn.commit()
 
     def add_context_item(self, session_id: str, kind: str, title: str, content_ref: str = "", pinned: bool = False) -> str:
         with self._lock:

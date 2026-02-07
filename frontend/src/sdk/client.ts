@@ -47,6 +47,8 @@ export type Client = {
   pinContext: (sessionId: string, contextId: string) => Promise<any>
   unpinContext: (sessionId: string, contextId: string) => Promise<any>
 
+  setContextPinnedRef: (sessionId: string, body: { kind: string; title?: string; content_ref: string; pinned: boolean }) => Promise<any>
+
   listPendingPermissions: (sessionId: string) => Promise<any[]>
   resolvePermission: (requestId: string, status: 'approved' | 'denied', scope: 'once' | 'session' | 'always') => Promise<any>
 }
@@ -166,6 +168,9 @@ export function createClient(opts: { baseUrl?: string; fetch?: FetchLike } = {})
       api(`/sessions/${encodeURIComponent(sessionId)}/context/pin`, { method: 'POST', body: { context_id: contextId } }),
     unpinContext: (sessionId, contextId) =>
       api(`/sessions/${encodeURIComponent(sessionId)}/context/unpin`, { method: 'POST', body: { context_id: contextId } }),
+
+    setContextPinnedRef: (sessionId, body) =>
+      api(`/sessions/${encodeURIComponent(sessionId)}/context/set_pinned_ref`, { method: 'POST', body }),
 
     listPendingPermissions: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/permissions/pending`),
     resolvePermission: (requestId, status, scope) =>

@@ -72,3 +72,5 @@ export const pinContext = client.pinContext
 export const unpinContext = client.unpinContext
 export const listPendingPermissions = client.listPendingPermissions
 export const resolvePermission = client.resolvePermission
+
+export const setContextPinnedRef = client.setContextPinnedRef

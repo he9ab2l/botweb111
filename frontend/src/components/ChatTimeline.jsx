@@ -52,6 +52,11 @@ export default function ChatTimeline({ blocks, streamingText, streamingBlockId, 
             loading={doc.loading}
             error={doc.error}
             truncated={doc.truncated}
+            pinned={doc.pinned}
+            canPin={doc.canPin}
+            pinBusy={doc.pinBusy}
+            pinError={doc.pinError}
+            onTogglePin={doc.onTogglePin}
           />
         )}
 

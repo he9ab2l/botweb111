@@ -24,6 +24,7 @@ Stack:
   - GLM uses `zai/` prefix (example: `zai/glm-4`)
 - Docs/knowledge panel:
   - built-in project docs + auto-discovered markdown
+  - pin docs/files into session context (auto-injected into prompts; large items summarized + cached)
   - APIs: `/api/v2/docs`, `/api/v2/docs/file?path=...`
 - Tools (with permissions):
   - `read_file`, `write_file`, `apply_patch`, `search`, `http_fetch`, `spawn_subagent`
@@ -137,6 +138,9 @@ Permissions:
 Inspector:
 - `GET /api/v2/sessions/{id}/file_changes`
 - `GET /api/v2/sessions/{id}/context`
+- `POST /api/v2/sessions/{id}/context/pin` `{ context_id }`
+- `POST /api/v2/sessions/{id}/context/unpin` `{ context_id }`
+- `POST /api/v2/sessions/{id}/context/set_pinned_ref` `{ kind, title?, content_ref, pinned }`
 - `GET /api/v2/sessions/{id}/terminal`
 
 FS (File Tree + Versions):
@@ -170,3 +174,8 @@ Export:
 ## Design
 
 See `DESIGN.md` for protocol, routes, DB schema, and migration strategy.
+
+More:
+- See `CONFIG.md` for configuration and providers
+- See `DEVELOPMENT.md` for local development
+- See `DEPLOY.md` for server deployment
