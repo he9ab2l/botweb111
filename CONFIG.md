@@ -51,8 +51,10 @@ Model naming convention:
 
 - `openai/gpt-4o`
 - `anthropic/claude-opus-4-5`
+- `openrouter/stepfun/step-3.5-flash:free`
 - `openrouter/anthropic/claude-3.5-sonnet`
-- `zai/glm-4` (GLM via Z.ai)
+- `zai/glm-4.7` (GLM via Z.ai)
+- `zai/glm-4`
 
 Per-session model override:
 

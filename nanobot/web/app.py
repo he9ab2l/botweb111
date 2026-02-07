@@ -452,11 +452,18 @@ cp ./config.example.json ~/.nanobot/config.json
                 "vllm": {"configured": bool(p.vllm.api_key), "api_base": p.vllm.api_base},
             },
             "recommended_models": [
-                "anthropic/claude-opus-4-5",
+                # OpenRouter
+                "openrouter/stepfun/step-3.5-flash:free",
                 "openrouter/anthropic/claude-3.5-sonnet",
-                "openai/gpt-4o",
+
+                # Z.ai (GLM)
+                "zai/glm-4.7",
                 "zai/glm-4",
                 "zai/glm-4-plus",
+
+                # Other common options
+                "openai/gpt-4o",
+                "anthropic/claude-opus-4-5",
             ],
         }
 

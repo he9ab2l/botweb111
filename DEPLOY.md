@@ -50,7 +50,11 @@ Then edit `~/.nanobot/config.json` and set at least one provider `apiKey`.
 
 GLM/Z.ai example:
 - set `providers.zhipu.apiKey`
-- choose model `zai/glm-4`
+- choose model `zai/glm-4.7`
+
+OpenRouter example:
+- set `providers.openrouter.apiKey`
+- choose model `openrouter/stepfun/step-3.5-flash:free`
 
 If the API key is not configured, the UI will still load, but model runs will fail until a key is set.
 

@@ -103,7 +103,7 @@ export default function InputArea({
             <input
               value={modelValue || ''}
               onChange={(e) => onModelChange(e.target.value)}
-              placeholder="zai/glm-4"
+              placeholder="zai/glm-4.7"
               list="model-list"
               className="min-w-[180px] flex-1 px-2 py-1 rounded border border-border-soft bg-bg-secondary text-text-secondary font-mono"
             />

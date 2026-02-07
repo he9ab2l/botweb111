@@ -17,6 +17,9 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
   const [glmKeyInput, setGlmKeyInput] = useState('')
   const [glmBaseInput, setGlmBaseInput] = useState('')
 
+  const [openrouterKeyInput, setOpenrouterKeyInput] = useState('')
+  const [openrouterBaseInput, setOpenrouterBaseInput] = useState('')
+
   const recommended = useMemo(() => {
     return (config?.recommended_models || []).filter(Boolean)
   }, [config])
@@ -56,6 +59,7 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
   if (!open) return null
 
   const glmConfigured = !!config?.providers?.zhipu?.configured
+  const openrouterConfigured = !!config?.providers?.openrouter?.configured
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -135,7 +139,7 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                 className="w-full px-3 py-2 rounded border border-border-soft bg-bg text-[12px] font-mono text-text-secondary focus:outline-none focus:ring-2 focus:ring-btn-primary/40"
                 value={chatModelInput}
                 onChange={(e) => setChatModelInput(e.target.value)}
-                placeholder="e.g. zai/glm-4"
+                placeholder="e.g. zai/glm-4.7"
                 list="model-list"
               />
               <datalist id="model-list">
@@ -144,7 +148,7 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                 ))}
               </datalist>
               <div className="mt-1 text-[11px] text-text-muted">
-                GLM models should use <span className="font-mono">zai/</span> prefix (e.g. <span className="font-mono">zai/glm-4</span>).
+                GLM models should use <span className="font-mono">zai/</span> prefix (e.g. <span className="font-mono">zai/glm-4.7</span>).
               </div>
             </div>
 
@@ -290,6 +294,98 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
             </p>
           </section>
 
+
+
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[11px] text-text-muted uppercase tracking-wide">OpenRouter API</div>
+                <div className="text-[12px] text-text-secondary flex items-center gap-2">
+                  <span className={cn('inline-flex items-center gap-1', openrouterConfigured ? 'text-status-success' : 'text-text-muted')}>
+                    <KeyRound size={12} />
+                    {openrouterConfigured ? 'Configured' : 'Not configured'}
+                  </span>
+                  {config?.config_path && (
+                    <span className="text-[11px] text-text-muted font-mono truncate max-w-[360px]">{config.config_path}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              <input
+                className="w-full px-3 py-2 rounded border border-border-soft bg-bg text-[12px] font-mono text-text-secondary focus:outline-none focus:ring-2 focus:ring-btn-primary/40"
+                value={openrouterKeyInput}
+                onChange={(e) => setOpenrouterKeyInput(e.target.value)}
+                placeholder="Enter OpenRouter API key (stored in ~/.nanobot/config.json)"
+                type="password"
+                autoComplete="off"
+              />
+              <input
+                className="w-full px-3 py-2 rounded border border-border-soft bg-bg text-[12px] font-mono text-text-secondary focus:outline-none focus:ring-2 focus:ring-btn-primary/40"
+                value={openrouterBaseInput}
+                onChange={(e) => setOpenrouterBaseInput(e.target.value)}
+                placeholder="Optional api_base (default: https://openrouter.ai/api/v1)"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={async () => {
+                  setErr('')
+                  try {
+                    const upd = {}
+                    const key = (openrouterKeyInput || '').trim()
+                    const base = (openrouterBaseInput || '').trim()
+                    if (key) upd.api_key = key
+                    upd.api_base = base
+
+                    await updateConfig({ providers: { openrouter: upd } })
+                    setOpenrouterKeyInput('')
+                    await refresh()
+                    onUpdated?.()
+                  } catch (e) {
+                    setErr(e?.message || 'Failed to update OpenRouter settings')
+                  }
+                }}
+                disabled={loading}
+                className={cn(
+                  'px-3 py-2 rounded border text-[12px] transition-colors',
+                  'bg-btn-primary text-white border-transparent hover:bg-btn-primary-hover',
+                  loading && 'opacity-60'
+                )}
+                title="Update OpenRouter API key/base"
+              >
+                Save OpenRouter Settings
+              </button>
+
+              <button
+                onClick={async () => {
+                  setErr('')
+                  try {
+                    await updateConfig({ providers: { openrouter: { api_key: '' } } })
+                    setOpenrouterKeyInput('')
+                    await refresh()
+                    onUpdated?.()
+                  } catch (e) {
+                    setErr(e?.message || 'Failed to clear OpenRouter key')
+                  }
+                }}
+                disabled={loading}
+                className={cn(
+                  'px-3 py-2 rounded border text-[12px] transition-colors',
+                  'bg-bg-secondary text-text-secondary border-border-soft hover:border-border hover:text-text-primary',
+                  loading && 'opacity-60'
+                )}
+              >
+                Clear OpenRouter Key
+              </button>
+            </div>
+
+            <p className="text-[11px] text-text-muted">
+              Tip: set model to <span className="font-mono">openrouter/stepfun/step-3.5-flash:free</span> (default or per chat).
+            </p>
+          </section>
           <section className="space-y-2">
             <div className="flex items-center justify-between">
               <div>
@@ -380,7 +476,7 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
             </div>
 
             <p className="text-[11px] text-text-muted">
-              Tip: after setting the key, set model to <span className="font-mono">zai/glm-4</span> (default or per chat).
+              Tip: after setting the key, set model to <span className="font-mono">zai/glm-4.7</span> (default or per chat).
             </p>
           </section>
         </div>

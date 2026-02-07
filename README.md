@@ -21,7 +21,7 @@ Stack:
   - editable via WebUI settings
 - Providers:
   - OpenAI / Anthropic / OpenRouter / DeepSeek / Gemini / Groq / Moonshot / vLLM / GLM (Z.ai)
-  - GLM uses `zai/` prefix (example: `zai/glm-4`)
+  - GLM uses `zai/` prefix (example: `zai/glm-4.7`)
 - Docs/knowledge panel:
   - built-in project docs + auto-discovered markdown
   - pin docs/files into session context (auto-injected into prompts; large items summarized + cached)
@@ -52,7 +52,11 @@ WebUI settings (recommended):
 
 GLM/Z.ai example:
 - provider key: `providers.zhipu.apiKey`
-- model: `zai/glm-4` or `zai/glm-4-plus`
+- model: `zai/glm-4.7` (or `zai/glm-4`, `zai/glm-4-plus`)
+
+OpenRouter example:
+- provider key: `providers.openrouter.apiKey`
+- model: `openrouter/stepfun/step-3.5-flash:free`
 
 ### 2) Build UI (static mode)
 
