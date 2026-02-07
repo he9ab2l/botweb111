@@ -1,7 +1,7 @@
 {
   "providers": {
     "openrouter": {
-      "apiKey": "sk-or-v1-REPLACE_ME",
+      "apiKey": "",
       "apiBase": "https://openrouter.ai/api/v1"
     },
     "anthropic": {
