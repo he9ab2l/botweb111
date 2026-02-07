@@ -236,6 +236,13 @@ class FanfanWebRunner:
             "Output Markdown. Focus on: key goals, constraints, APIs, configs, and any rules.\n"
             "Do not include long excerpts. Keep it short and actionable."
         )
+        # Avoid sending huge payloads to the provider.
+        max_input_chars = 80000
+        if len(content) > max_input_chars:
+            head = content[:60000]
+            tail = content[-10000:]
+            content = head + "\n\n...(middle truncated for summarization)...\n\n" + tail
+
         user = f"Title: {title}\n\nContent:\n{content}"
 
         try:
