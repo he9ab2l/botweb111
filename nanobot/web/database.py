@@ -10,6 +10,7 @@ The v2 web UI uses:
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import threading
 import uuid
@@ -152,6 +153,21 @@ class Database:
                     created_at  TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_file_changes_session ON file_changes(session_id, created_at);
+
+                CREATE TABLE IF NOT EXISTS file_versions (
+                    id          TEXT PRIMARY KEY,
+                    session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                    turn_id     TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+                    step_id     TEXT NOT NULL REFERENCES steps(id) ON DELETE CASCADE,
+                    path        TEXT NOT NULL,
+                    idx         INTEGER NOT NULL,
+                    sha256      TEXT NOT NULL,
+                    content     TEXT NOT NULL,
+                    note        TEXT NOT NULL DEFAULT '',
+                    created_at  TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_file_versions_unique ON file_versions(session_id, path, idx);
+                CREATE INDEX IF NOT EXISTS idx_file_versions_session_path ON file_versions(session_id, path, idx);
 
                 CREATE TABLE IF NOT EXISTS tool_permissions (
                     tool_name   TEXT PRIMARY KEY,
@@ -537,6 +553,135 @@ class Database:
                 (session_id, int(limit)),
             ).fetchall()
             return [dict(r) for r in rows]
+
+
+    def _hash_text(self, text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+    def list_file_versions(self, session_id: str, path: str, limit: int = 200) -> list[dict[str, Any]]:
+        with self._lock:
+            conn = self._get_conn()
+            rows = conn.execute(
+                "SELECT id, session_id, turn_id, step_id, path, idx, sha256, note, created_at "
+                "FROM file_versions WHERE session_id = ? AND path = ? ORDER BY idx DESC LIMIT ?",
+                (session_id, path, int(limit)),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_file_version(self, version_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            conn = self._get_conn()
+            row = conn.execute("SELECT * FROM file_versions WHERE id = ?", (version_id,)).fetchone()
+            return dict(row) if row else None
+
+    def _has_any_file_versions(self, conn: sqlite3.Connection, session_id: str, path: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM file_versions WHERE session_id = ? AND path = ? LIMIT 1",
+            (session_id, path),
+        ).fetchone()
+        return row is not None
+
+    def _last_file_version_sha(self, conn: sqlite3.Connection, session_id: str, path: str) -> str | None:
+        row = conn.execute(
+            "SELECT sha256 FROM file_versions WHERE session_id = ? AND path = ? ORDER BY idx DESC LIMIT 1",
+            (session_id, path),
+        ).fetchone()
+        return str(row["sha256"]) if row and row["sha256"] is not None else None
+
+    def _next_file_version_idx(self, conn: sqlite3.Connection, session_id: str, path: str) -> int:
+        row = conn.execute(
+            "SELECT MAX(idx) AS m FROM file_versions WHERE session_id = ? AND path = ?",
+            (session_id, path),
+        ).fetchone()
+        m = row["m"] if row and row["m"] is not None else None
+        return int(m) + 1 if m is not None else 0
+
+    def ensure_file_base_version(
+        self,
+        session_id: str,
+        turn_id: str,
+        step_id: str,
+        path: str,
+        content: str,
+    ) -> str | None:
+        # Persist the pre-change file content as idx=0 for the first change in a session.
+        with self._lock:
+            if content is None:
+                return None
+            if len(content) > 1_000_000:
+                return None
+
+            conn = self._get_conn()
+            if self._has_any_file_versions(conn, session_id, path):
+                return None
+
+            return self.add_file_version(
+                session_id=session_id,
+                turn_id=turn_id,
+                step_id=step_id,
+                path=path,
+                content=content,
+                note="base",
+            )
+
+    def add_file_version(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        step_id: str,
+        path: str,
+        content: str,
+        note: str = "",
+    ) -> str | None:
+        # Add a new file version snapshot for rollback/history.
+        # Returns the new version id, or None if skipped (duplicate/too large).
+        with self._lock:
+            if content is None:
+                return None
+            if len(content) > 1_000_000:
+                return None
+
+            conn = self._get_conn()
+            sha = self._hash_text(content)
+            last_sha = self._last_file_version_sha(conn, session_id, path)
+            if last_sha == sha:
+                return None
+
+            fv_id = f"fv_{uuid.uuid4().hex[:12]}"
+            now = _now_iso()
+            idx = self._next_file_version_idx(conn, session_id, path)
+            conn.execute(
+                "INSERT INTO file_versions (id, session_id, turn_id, step_id, path, idx, sha256, content, note, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (fv_id, session_id, turn_id, step_id, path, int(idx), sha, content, note, now),
+            )
+            conn.commit()
+            return fv_id
+
+    def record_file_change_versions(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        step_id: str,
+        path: str,
+        before: str | None,
+        after: str | None,
+        note: str = "",
+    ) -> None:
+        # Record version snapshots for a file mutation.
+        if before is not None:
+            self.ensure_file_base_version(session_id, turn_id, step_id, path, before)
+        if after is not None:
+            self.add_file_version(
+                session_id=session_id,
+                turn_id=turn_id,
+                step_id=step_id,
+                path=path,
+                content=after,
+                note=note,
+            )
 
     def add_terminal_chunk(
         self,

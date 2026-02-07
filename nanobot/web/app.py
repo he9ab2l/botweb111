@@ -10,6 +10,7 @@ Key properties:
 from __future__ import annotations
 
 import asyncio
+import os
 import difflib
 import json
 import mimetypes
@@ -75,6 +76,11 @@ class PermissionResolveRequest(BaseModel):
 
 class ContextPinRequest(BaseModel):
     context_id: str = Field(min_length=1)
+
+
+class FsRollbackRequest(BaseModel):
+    path: str = Field(min_length=1)
+    version_id: str = Field(min_length=1)
 
 
 def create_app() -> FastAPI:
@@ -161,8 +167,8 @@ def create_app() -> FastAPI:
                 return
 
             demo_session_id = f"ses_demo_{uuid.uuid4().hex[:8]}"
-            demo_user = "Demo: show a tool call, terminal streaming, and a diff."
-            demo_assistant = "Demo completed. You should see tool cards, terminal output, and a diff in the inspector."
+            demo_user = "Demo: show a tool call and a diff."
+            demo_assistant = "Demo completed. You should see tool cards and a diff in the inspector."
 
             db.create_session(demo_session_id, "Demo")
             db.add_message(demo_session_id, "user", demo_user)
@@ -203,45 +209,6 @@ def create_app() -> FastAPI:
                 step_id=step_id,
                 type="thinking",
                 payload={"status": "end", "duration_ms": 120},
-            )
-
-            # Tool: run_command (simulated terminal chunks)
-            tc1 = f"tc_{uuid.uuid4().hex[:8]}"
-            await bus.publish(
-                session_id=demo_session_id,
-                turn_id=turn["id"],
-                step_id=step_id,
-                type="tool_call",
-                payload={
-                    "tool_call_id": tc1,
-                    "tool_name": "run_command",
-                    "input": {"command": "echo hello"},
-                    "status": "running",
-                },
-            )
-            ts = _now_ts()
-            db.add_terminal_chunk(demo_session_id, turn["id"], step_id, tc1, "stdout", "hello\n", ts)
-            await bus.publish(
-                session_id=demo_session_id,
-                turn_id=turn["id"],
-                step_id=step_id,
-                type="terminal_chunk",
-                payload={"tool_call_id": tc1, "stream": "stdout", "text": "hello\n"},
-                ts=ts,
-            )
-            await bus.publish(
-                session_id=demo_session_id,
-                turn_id=turn["id"],
-                step_id=step_id,
-                type="tool_result",
-                payload={
-                    "tool_call_id": tc1,
-                    "tool_name": "run_command",
-                    "ok": True,
-                    "output": "hello\n",
-                    "error": "",
-                    "duration_ms": 50,
-                },
             )
 
             # Tool: apply_patch (simulated diff)
@@ -781,6 +748,7 @@ cp ./config.example.json ~/.nanobot/config.json
                 "apply_patch": settings.tool_enabled_apply_patch,
                 "search": settings.tool_enabled_search,
                 "http_fetch": settings.tool_enabled_http_fetch,
+                "spawn_subagent": settings.tool_enabled("spawn_subagent"),
             },
         }
 
@@ -817,6 +785,260 @@ cp ./config.example.json ~/.nanobot/config.json
             raise HTTPException(status_code=404, detail="session not found")
         db.set_context_pinned(payload.context_id, False)
         return {"ok": True}
+
+    # ── FS (File Tree + Versions) ────────────────────────────────
+
+    fs_root = settings.resolved_fs_root().expanduser().resolve()
+
+    _FS_IGNORE_DIRS = {
+        ".git",
+        ".hg",
+        ".svn",
+        ".venv",
+        "node_modules",
+        "__pycache__",
+        "dist",
+        "build",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        "data",
+    }
+
+    def _resolve_fs_path(raw: str) -> Path:
+        if not raw:
+            raise HTTPException(status_code=400, detail="path is required")
+
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            p = fs_root / p
+
+        try:
+            resolved = p.resolve()
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid path")
+
+        root = fs_root.resolve()
+        if resolved == root or resolved.is_relative_to(root):
+            return resolved
+
+        raise HTTPException(status_code=400, detail="path is outside allowed root")
+
+    def _rel_fs_path(p: Path) -> str:
+        try:
+            return p.resolve().relative_to(fs_root.resolve()).as_posix()
+        except Exception:
+            return str(p)
+
+    def _walk_fs_tree(max_files: int = 5000) -> tuple[list[dict[str, Any]], bool]:
+        items: list[dict[str, Any]] = []
+        truncated = False
+
+        for dirpath, dirnames, filenames in os.walk(fs_root):
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if d not in _FS_IGNORE_DIRS and not d.startswith(".")
+            ]
+
+            for fn in sorted(filenames):
+                if fn.startswith("."):
+                    continue
+                full = Path(dirpath) / fn
+                try:
+                    rel = _rel_fs_path(full)
+                    if not rel or rel.startswith(".."):
+                        continue
+                    st = full.stat()
+                    items.append({"path": rel, "size": int(st.st_size), "mtime": float(st.st_mtime)})
+                except Exception:
+                    continue
+
+                if len(items) >= max_files:
+                    truncated = True
+                    break
+
+            if truncated:
+                break
+
+        items.sort(key=lambda x: x.get("path") or "")
+        return items, truncated
+
+    @app.get("/api/v2/sessions/{session_id}/fs/tree")
+    async def fs_tree(session_id: str) -> dict[str, Any]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+        items, truncated = _walk_fs_tree()
+        return {"root": ".", "items": items, "truncated": bool(truncated)}
+
+    @app.get("/api/v2/sessions/{session_id}/fs/read")
+    async def fs_read(session_id: str, path: str) -> dict[str, Any]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+
+        p = _resolve_fs_path(path)
+        if not p.exists() or not p.is_file():
+            raise HTTPException(status_code=404, detail="file not found")
+
+        st = p.stat()
+        # Avoid loading huge files into memory in the UI.
+        max_chars = 200_000
+        content = p.read_text(encoding="utf-8", errors="replace")
+        truncated = False
+        if len(content) > max_chars:
+            content = content[:max_chars]
+            truncated = True
+
+        return {
+            "path": _rel_fs_path(p),
+            "size": int(st.st_size),
+            "mtime": float(st.st_mtime),
+            "truncated": bool(truncated),
+            "content": content,
+        }
+
+    @app.get("/api/v2/sessions/{session_id}/fs/versions")
+    async def fs_versions(session_id: str, path: str) -> list[dict[str, Any]]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+        p = _resolve_fs_path(path)
+        rel = _rel_fs_path(p)
+        return db.list_file_versions(session_id, rel, limit=200)
+
+    @app.get("/api/v2/sessions/{session_id}/fs/version/{version_id}")
+    async def fs_get_version(session_id: str, version_id: str) -> dict[str, Any]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+
+        rec = db.get_file_version(version_id)
+        if not rec or str(rec.get("session_id") or "") != session_id:
+            raise HTTPException(status_code=404, detail="version not found")
+
+        content = str(rec.get("content") or "")
+        max_chars = 200_000
+        truncated = False
+        if len(content) > max_chars:
+            content = content[:max_chars]
+            truncated = True
+
+        return {
+            "id": str(rec.get("id")),
+            "session_id": session_id,
+            "path": str(rec.get("path")),
+            "idx": int(rec.get("idx") or 0),
+            "note": str(rec.get("note") or ""),
+            "created_at": str(rec.get("created_at") or ""),
+            "truncated": bool(truncated),
+            "content": content,
+        }
+
+    @app.post("/api/v2/sessions/{session_id}/fs/rollback")
+    async def fs_rollback(session_id: str, payload: FsRollbackRequest) -> dict[str, Any]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+
+        target = db.get_file_version(payload.version_id)
+        if not target or str(target.get("session_id") or "") != session_id:
+            raise HTTPException(status_code=404, detail="version not found")
+
+        p = _resolve_fs_path(payload.path)
+        rel = _rel_fs_path(p)
+        if str(target.get("path") or "") != rel:
+            raise HTTPException(status_code=400, detail="version does not match file path")
+
+        # Read current
+        before = p.read_text(encoding="utf-8", errors="replace") if p.exists() and p.is_file() else ""
+        after = str(target.get("content") or "")
+
+        if before == after:
+            return {"ok": True, "path": rel, "changed": False}
+
+        # Write rollback content
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(after, encoding="utf-8")
+
+        # Record as an internal v2 turn so artifacts remain consistent.
+        turn = db.create_turn(session_id, f"[rollback] {rel} -> v{int(target.get('idx') or 0)}")
+        s0 = db.create_step(turn["id"], idx=0)
+        db.finish_step(s0["id"], status="completed")
+        s1 = db.create_step(turn["id"], idx=1)
+
+        diff = "\n".join(
+            difflib.unified_diff(
+                before.splitlines(),
+                after.splitlines(),
+                fromfile="a/" + rel,
+                tofile="b/" + rel,
+                lineterm="",
+            )
+        ) + "\n"
+
+        db.add_file_change(session_id, turn["id"], s1["id"], rel, diff)
+        db.record_file_change_versions(
+            session_id=session_id,
+            turn_id=turn["id"],
+            step_id=s1["id"],
+            path=rel,
+            before=before,
+            after=after,
+            note="rollback",
+        )
+
+        tool_call_id = f"rollback_{uuid.uuid4().hex[:8]}"
+        await bus.publish(
+            session_id=session_id,
+            turn_id=turn["id"],
+            step_id=s1["id"],
+            type="tool_call",
+            payload={
+                "tool_call_id": tool_call_id,
+                "tool_name": "fs.rollback",
+                "input": {
+                    "path": rel,
+                    "version_id": payload.version_id,
+                    "idx": int(target.get("idx") or 0),
+                },
+                "status": "running",
+            },
+        )
+
+        await bus.publish(
+            session_id=session_id,
+            turn_id=turn["id"],
+            step_id=s1["id"],
+            type="fs_rollback",
+            payload={
+                "tool_call_id": tool_call_id,
+                "path": rel,
+                "version_id": payload.version_id,
+                "idx": int(target.get("idx") or 0),
+            },
+        )
+        await bus.publish(
+            session_id=session_id,
+            turn_id=turn["id"],
+            step_id=s1["id"],
+            type="diff",
+            payload={"tool_call_id": tool_call_id, "path": rel, "diff": diff},
+        )
+        await bus.publish(
+            session_id=session_id,
+            turn_id=turn["id"],
+            step_id=s1["id"],
+            type="tool_result",
+            payload={
+                "tool_call_id": tool_call_id,
+                "tool_name": "fs.rollback",
+                "ok": True,
+                "output": f"Rolled back {rel} to v{int(target.get('idx') or 0)}",
+                "error": "",
+                "duration_ms": 0,
+            },
+        )
+        db.finish_step(s1["id"], status="completed")
+        db.touch_session(session_id)
+
+        return {"ok": True, "path": rel, "changed": True}
 
     # ── Permissions ───────────────────────────────────────────────
 

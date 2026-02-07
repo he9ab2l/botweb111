@@ -1,9 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Clock, RefreshCw, Wifi, WifiOff, ShieldAlert, FileCode, TerminalSquare, Layers, Fingerprint } from 'lucide-react'
+import { Clock, RefreshCw, Wifi, WifiOff, ShieldAlert, FileCode, Layers, Fingerprint } from 'lucide-react'
 import { cn, formatDuration, formatTime, truncate } from '../lib/utils'
-import { listContext, listFileChanges, listPendingPermissions, listTerminal, pinContext, resolvePermission, unpinContext } from '../lib/api'
+import {
+  fsTree,
+  fsRead,
+  fsVersions,
+  fsGetVersion,
+  fsRollback,
+  listContext,
+  listFileChanges,
+  listPendingPermissions,
+  pinContext,
+  resolvePermission,
+  unpinContext,
+} from '../lib/api'
 
-const TABS = ['Trace', 'Files', 'Terminal', 'Context', 'Permissions']
+const TABS = ['Trace', 'Files', 'Context', 'Permissions']
 
 export default function Inspector({
   sessionId,
@@ -15,10 +27,19 @@ export default function Inspector({
 }) {
   const [tab, setTab] = useState('Trace')
   const [fileChanges, setFileChanges] = useState([])
-  const [terminalRows, setTerminalRows] = useState([])
   const [contextItems, setContextItems] = useState([])
   const [pendingPerms, setPendingPerms] = useState([])
   const [loading, setLoading] = useState(false)
+
+  // FS browser (tree + versions + rollback)
+  const [fsIndex, setFsIndex] = useState(null) // { root, items, truncated }
+  const [fsFilter, setFsFilter] = useState('')
+  const [fsSelectedPath, setFsSelectedPath] = useState('')
+  const [fsFile, setFsFile] = useState(null) // { path, size, mtime, truncated, content }
+  const [fsFileVersions, setFsFileVersions] = useState([])
+  const [fsPreview, setFsPreview] = useState(null) // { id, idx, note, created_at, truncated, content }
+  const [fsBusy, setFsBusy] = useState(false)
+  const [fsError, setFsError] = useState('')
 
   const toolCount = toolCalls.length
   const errorCount = toolCalls.filter(t => t.status === 'error').length
@@ -26,12 +47,30 @@ export default function Inspector({
 
   const traceBlocks = useMemo(() => blocks.slice(-100), [blocks])
 
+  const filteredFiles = useMemo(() => {
+    const items = fsIndex?.items || []
+    const q = (fsFilter || '').trim().toLowerCase()
+    if (!q) return items
+    return items.filter(i => String(i.path || '').toLowerCase().includes(q))
+  }, [fsIndex, fsFilter])
+
   async function refreshTabData(activeTab = tab) {
     if (!sessionId) return
     setLoading(true)
     try {
-      if (activeTab === 'Files') setFileChanges(await listFileChanges(sessionId))
-      if (activeTab === 'Terminal') setTerminalRows(await listTerminal(sessionId))
+      if (activeTab === 'Files') {
+        setFsError('')
+        try {
+          const [tree, changes] = await Promise.all([
+            fsTree(sessionId),
+            listFileChanges(sessionId),
+          ])
+          setFsIndex(tree)
+          setFileChanges(changes)
+        } catch (e) {
+          setFsError(e?.message || String(e))
+        }
+      }
       if (activeTab === 'Context') setContextItems(await listContext(sessionId))
       if (activeTab === 'Permissions') setPendingPerms(await listPendingPermissions(sessionId))
     } finally {
@@ -39,12 +78,39 @@ export default function Inspector({
     }
   }
 
+  async function refreshSelectedFile(path = fsSelectedPath) {
+    if (!sessionId || !path) return
+    setFsBusy(true)
+    setFsError('')
+    try {
+      const [file, versions] = await Promise.all([
+        fsRead(sessionId, path),
+        fsVersions(sessionId, path),
+      ])
+      setFsFile(file)
+      setFsFileVersions(versions)
+    } catch (e) {
+      setFsError(e?.message || String(e))
+    } finally {
+      setFsBusy(false)
+    }
+  }
+
   useEffect(() => {
     // Reset per-session inspector data
     setFileChanges([])
-    setTerminalRows([])
     setContextItems([])
     setPendingPerms([])
+
+    setFsIndex(null)
+    setFsFilter('')
+    setFsSelectedPath('')
+    setFsFile(null)
+    setFsFileVersions([])
+    setFsPreview(null)
+    setFsBusy(false)
+    setFsError('')
+
     if (!sessionId) return
     refreshTabData(tab).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,6 +121,14 @@ export default function Inspector({
     refreshTabData(tab).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
+
+  useEffect(() => {
+    if (!sessionId) return
+    if (tab !== 'Files') return
+    if (!fsSelectedPath) return
+    refreshSelectedFile(fsSelectedPath).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, tab, fsSelectedPath])
 
   return (
     <div className="flex flex-col h-full bg-bg-secondary border-l border-border overflow-hidden">
@@ -91,7 +165,6 @@ export default function Inspector({
             >
               {t === 'Trace' && <Layers size={12} className="inline mr-1 -mt-0.5" />}
               {t === 'Files' && <FileCode size={12} className="inline mr-1 -mt-0.5" />}
-              {t === 'Terminal' && <TerminalSquare size={12} className="inline mr-1 -mt-0.5" />}
               {t === 'Context' && <Fingerprint size={12} className="inline mr-1 -mt-0.5" />}
               {t === 'Permissions' && <ShieldAlert size={12} className="inline mr-1 -mt-0.5" />}
               {t}
@@ -241,37 +314,206 @@ export default function Inspector({
         )}
 
         {tab === 'Files' && (
-          <Section title={`File Changes (${fileChanges.length})`}>
-            {fileChanges.length === 0 ? (
-              <p className="text-text-muted">No file changes</p>
-            ) : (
-              <div className="space-y-2">
-                {fileChanges.map(fc => (
-                  <div key={fc.id} className="rounded border border-border-soft overflow-hidden">
-                    <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-bg-secondary text-[11px]">
-                      <span className="font-mono text-text-primary truncate">{fc.path}</span>
-                      <span className="text-text-muted">{fc.created_at ? new Date(fc.created_at).toLocaleTimeString() : ''}</span>
-                    </div>
-                    <pre className="bg-bg font-mono text-[11px] leading-5 overflow-x-auto max-h-96 overflow-y-auto p-2">
-                      {fc.diff}
-                    </pre>
-                  </div>
-                ))}
+          <>
+            <Section title="Workspace">
+              <div className="flex items-center gap-2">
+                <input
+                  value={fsFilter}
+                  onChange={e => setFsFilter(e.target.value)}
+                  placeholder="Filter files"
+                  className={cn(
+                    'flex-1 px-2 py-1 rounded border border-border-soft bg-bg text-text-secondary',
+                    'placeholder:text-text-muted outline-none focus:border-border'
+                  )}
+                />
+                <button
+                  onClick={() => {
+                    setFsPreview(null)
+                    refreshTabData('Files').catch(() => {})
+                  }}
+                  className={cn(
+                    'px-2 py-1 rounded border border-border-soft bg-bg-secondary text-text-muted',
+                    'hover:text-text-secondary hover:border-border transition-colors'
+                  )}
+                  title="Reload file tree"
+                  disabled={!sessionId}
+                >
+                  Reload
+                </button>
               </div>
-            )}
-          </Section>
-        )}
 
-        {tab === 'Terminal' && (
-          <Section title={`Terminal (${terminalRows.length})`}>
-            {terminalRows.length === 0 ? (
-              <p className="text-text-muted">No terminal output</p>
-            ) : (
-              <pre className="text-[11px] text-text-secondary bg-bg border border-border-soft rounded p-2 overflow-x-auto max-h-[60vh] overflow-y-auto whitespace-pre-wrap">
-                {terminalRows.map(r => r.text).join('')}
-              </pre>
+              {fsError && (
+                <div className="mt-2 text-status-error">{fsError}</div>
+              )}
+
+              <div className="mt-2 rounded border border-border-soft overflow-hidden">
+                <div className="max-h-56 overflow-y-auto">
+                  {filteredFiles.length === 0 ? (
+                    <div className="px-2.5 py-2 text-text-muted">No files</div>
+                  ) : (
+                    filteredFiles.slice(0, 400).map(i => (
+                      <button
+                        key={i.path}
+                        onClick={() => {
+                          setFsSelectedPath(i.path)
+                          setFsPreview(null)
+                        }}
+                        className={cn(
+                          'w-full text-left px-2.5 py-1 border-b border-border-soft last:border-b-0',
+                          'hover:bg-bg/40 transition-colors',
+                          fsSelectedPath === i.path ? 'bg-bg/60' : 'bg-bg-secondary/20'
+                        )}
+                        title={i.path}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-text-primary truncate">{i.path}</span>
+                          <span className="text-text-muted shrink-0">{formatBytes(i.size || 0)}</span>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {fsIndex?.truncated && (
+                <div className="mt-2 text-text-muted">File list truncated.</div>
+              )}
+              {filteredFiles.length > 400 && (
+                <div className="mt-2 text-text-muted">Showing first 400 matches. Narrow your filter.</div>
+              )}
+            </Section>
+
+            <Section title="File">
+              {!fsSelectedPath ? (
+                <p className="text-text-muted">Select a file to preview and manage versions.</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-text-primary truncate">{fsSelectedPath}</span>
+                    <button
+                      onClick={() => refreshSelectedFile().catch(() => {})}
+                      className={cn(
+                        'px-2 py-1 rounded border border-border-soft bg-bg-secondary text-text-muted',
+                        'hover:text-text-secondary hover:border-border transition-colors',
+                        fsBusy && 'opacity-60 cursor-wait'
+                      )}
+                      title="Reload file"
+                      disabled={fsBusy}
+                    >
+                      Reload
+                    </button>
+                  </div>
+
+                  {fsFile && (
+                    <>
+                      <div className="mt-1 text-text-muted text-[10px] flex items-center justify-between">
+                        <span>{formatBytes(fsFile.size || 0)}</span>
+                        <span>{fsFile.truncated ? 'truncated' : ''}</span>
+                      </div>
+                      <pre className="mt-2 bg-bg font-mono text-[11px] leading-5 overflow-x-auto max-h-80 overflow-y-auto p-2 border border-border-soft rounded">
+                        {fsFile.content || ''}
+                      </pre>
+                    </>
+                  )}
+                </>
+              )}
+            </Section>
+
+            <Section title={`Versions (${fsFileVersions.length})`}>
+              {!fsSelectedPath ? (
+                <p className="text-text-muted">Select a file first.</p>
+              ) : fsBusy && fsFileVersions.length === 0 ? (
+                <p className="text-text-muted">Loading...</p>
+              ) : fsFileVersions.length === 0 ? (
+                <p className="text-text-muted">No versions yet. Versions are captured when tools modify a file.</p>
+              ) : (
+                <div className="space-y-1">
+                  {fsFileVersions.map(v => (
+                    <div key={v.id} className="rounded border border-border-soft bg-bg/40 px-2 py-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-text-primary shrink-0">v{v.idx}</span>
+                        <span className="text-text-muted truncate flex-1">{v.note || ''}</span>
+                        <button
+                          className="px-2 py-0.5 rounded border border-border-soft bg-bg-secondary text-text-muted hover:text-text-secondary hover:border-border transition-colors"
+                          onClick={async () => {
+                            if (!sessionId) return
+                            try {
+                              const data = await fsGetVersion(sessionId, v.id)
+                              setFsPreview(data)
+                            } catch (e) {
+                              setFsError(e?.message || String(e))
+                            }
+                          }}
+                          title="Preview version"
+                        >
+                          View
+                        </button>
+                        <button
+                          className="px-2 py-0.5 rounded border border-border-soft bg-bg-secondary text-text-muted hover:text-text-secondary hover:border-border transition-colors"
+                          onClick={async () => {
+                            if (!sessionId) return
+                            if (!fsSelectedPath) return
+                            const ok = window.confirm(`Rollback ${fsSelectedPath} to v${v.idx}?`)
+                            if (!ok) return
+                            setFsBusy(true)
+                            setFsError('')
+                            try {
+                              await fsRollback(sessionId, fsSelectedPath, v.id)
+                              setFsPreview(null)
+                              await refreshSelectedFile(fsSelectedPath)
+                              setFileChanges(await listFileChanges(sessionId))
+                            } catch (e) {
+                              setFsError(e?.message || String(e))
+                            } finally {
+                              setFsBusy(false)
+                            }
+                          }}
+                          title="Rollback to this version"
+                        >
+                          Rollback
+                        </button>
+                      </div>
+                      <div className="text-[10px] text-text-muted mt-0.5">
+                        {v.created_at ? new Date(v.created_at).toLocaleString() : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+
+            {fsPreview && (
+              <Section title={`Preview v${fsPreview.idx} (${truncate(fsPreview.note || '', 20) || 'snapshot'})`}>
+                <div className="text-[10px] text-text-muted flex items-center justify-between">
+                  <span className="font-mono truncate">{fsPreview.path}</span>
+                  <span>{fsPreview.truncated ? 'truncated' : ''}</span>
+                </div>
+                <pre className="mt-2 bg-bg font-mono text-[11px] leading-5 overflow-x-auto max-h-80 overflow-y-auto p-2 border border-border-soft rounded">
+                  {fsPreview.content || ''}
+                </pre>
+              </Section>
             )}
-          </Section>
+
+            <Section title={`File Changes (${fileChanges.length})`}>
+              {fileChanges.length === 0 ? (
+                <p className="text-text-muted">No file changes</p>
+              ) : (
+                <div className="space-y-2">
+                  {fileChanges.map(fc => (
+                    <div key={fc.id} className="rounded border border-border-soft overflow-hidden">
+                      <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-bg-secondary text-[11px]">
+                        <span className="font-mono text-text-primary truncate">{fc.path}</span>
+                        <span className="text-text-muted">{fc.created_at ? new Date(fc.created_at).toLocaleTimeString() : ''}</span>
+                      </div>
+                      <pre className="bg-bg font-mono text-[11px] leading-5 overflow-x-auto max-h-96 overflow-y-auto p-2">
+                        {fc.diff}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+          </>
         )}
 
         {tab === 'Context' && (
@@ -345,6 +587,20 @@ export default function Inspector({
     await resolvePermission(requestId, status2, scope2)
     refreshTabData('Permissions').catch(() => {})
   }
+}
+
+function formatBytes(n) {
+  const num = Number(n || 0)
+  if (!Number.isFinite(num) || num <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let v = num
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  const fixed = i === 0 ? 0 : i === 1 ? 1 : 2
+  return `${v.toFixed(fixed)} ${units[i]}`
 }
 
 function PermBtn({ children, onClick, danger }) {

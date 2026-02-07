@@ -22,6 +22,12 @@ export type Client = {
     onError?: (err: any) => void
   }) => EventSource
 
+  fsTree: (sessionId: string) => Promise<any>
+  fsRead: (sessionId: string, path: string) => Promise<any>
+  fsVersions: (sessionId: string, path: string) => Promise<any[]>
+  fsGetVersion: (sessionId: string, versionId: string) => Promise<any>
+  fsRollback: (sessionId: string, path: string, versionId: string) => Promise<any>
+
   listFileChanges: (sessionId: string) => Promise<any[]>
   listTerminal: (sessionId: string) => Promise<any[]>
   listContext: (sessionId: string) => Promise<any[]>
@@ -118,6 +124,13 @@ export function createClient(opts: { baseUrl?: string; fetch?: FetchLike } = {})
     },
 
     subscribeEvents,
+
+    fsTree: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/fs/tree`),
+    fsRead: (sessionId, path) => api(`/sessions/${encodeURIComponent(sessionId)}/fs/read?path=${encodeURIComponent(path)}`),
+    fsVersions: (sessionId, path) => api(`/sessions/${encodeURIComponent(sessionId)}/fs/versions?path=${encodeURIComponent(path)}`),
+    fsGetVersion: (sessionId, versionId) => api(`/sessions/${encodeURIComponent(sessionId)}/fs/version/${encodeURIComponent(versionId)}`),
+    fsRollback: (sessionId, path, versionId) =>
+      api(`/sessions/${encodeURIComponent(sessionId)}/fs/rollback`, { method: 'POST', body: { path, version_id: versionId } }),
 
     listFileChanges: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/file_changes`),
     listTerminal: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/terminal`),

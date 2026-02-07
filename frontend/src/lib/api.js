@@ -16,6 +16,13 @@ export async function sendMessage(sessionId, content) {
 
 export const cancelRun = client.cancelRun
 
+export const fsTree = client.fsTree
+export const fsRead = client.fsRead
+export const fsVersions = client.fsVersions
+export const fsGetVersion = client.fsGetVersion
+export const fsRollback = client.fsRollback
+
+
 // v1 memory endpoints are kept on the backend; expose them only if needed later.
 export async function getMemory() {
   const res = await fetch(`/api/v1/memory`)

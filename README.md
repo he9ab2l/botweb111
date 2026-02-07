@@ -19,10 +19,11 @@ Stack:
   - session -> turn -> step -> parts (events)
   - OpenCode-style agent loop: tool_call -> tool_result -> continue -> final
 - Tools (with permissions):
-  - `run_command`, `read_file`, `write_file`, `apply_patch`, `search`, `http_fetch`
+  - `read_file`, `write_file`, `apply_patch`, `search`, `http_fetch`, `spawn_subagent`
   - Permission gate: `deny | ask | allow` + UI approval modal
+  - No shell/CLI tool is exposed in the WebUI.
 - Inspector tabs:
-  - Trace / Files / Terminal / Context / Permissions
+  - Trace / Files / Context / Permissions
 
 ## Quick Start
 
@@ -79,7 +80,7 @@ Key variables:
 - `FANFAN_DB_PATH`: override DB path (default: `./data/fanfan.db`)
 - `FANFAN_FS_ROOT`: allowed root for file tools (`read_file`/`write_file`/`apply_patch`) (default: repo root)
 - `FANFAN_TOOL_POLICY_DEFAULT`: `deny | ask | allow`
-- `FANFAN_TOOL_POLICY_RUN_COMMAND`, etc
+- `FANFAN_TOOL_POLICY_READ_FILE`, etc
 
 ## API (v2)
 
@@ -98,10 +99,16 @@ Events:
 
 Inspector:
 - `GET /api/v2/sessions/{id}/file_changes`
-- `GET /api/v2/sessions/{id}/terminal`
 - `GET /api/v2/sessions/{id}/context`
 - `GET /api/v2/sessions/{id}/permissions/pending`
 - `POST /api/v2/permissions/{request_id}/resolve`
+
+FS (File Tree + Versions):
+- `GET /api/v2/sessions/{id}/fs/tree`
+- `GET /api/v2/sessions/{id}/fs/read?path=...`
+- `GET /api/v2/sessions/{id}/fs/versions?path=...`
+- `GET /api/v2/sessions/{id}/fs/version/{version_id}`
+- `POST /api/v2/sessions/{id}/fs/rollback`
 
 Export:
 - `GET /api/v2/sessions/{id}/export.json`
@@ -116,10 +123,11 @@ Export:
    - send a message, watch assistant text stream
 3. Permission modal:
    - ask fanfan to run a tool, approve once
-4. Terminal streaming:
-   - ask to run `echo hello`, observe terminal output in tool card and Terminal tab
-5. Diff:
+4. Subagent tree:
+   - ask fanfan to use `spawn_subagent` for a focused task, open the tool card and inspect nested events
+5. Diff + versions:
    - ask to `write_file` or `apply_patch`, observe diff in timeline and Files tab
+   - open Files tab, preview file versions, and rollback
 
 ## Design
 

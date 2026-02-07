@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Wrench, ChevronDown, ChevronRight, Clock } from 'lucide-react'
+import ThinkingBlock from './ThinkingBlock'
+import PatchBlock from './PatchBlock'
 import { cn, formatDuration, truncate } from '../lib/utils'
 
 /**
@@ -94,6 +96,60 @@ export default function ToolUseBlock({ block }) {
             </div>
           )}
 
+
+
+          {block.subagent && (
+            <div>
+              <span className="text-[10px] text-text-muted block mb-0.5">Subagent</span>
+              <div className="text-[11px] text-text-secondary bg-bg-secondary/35 border border-border-soft rounded p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-text-primary truncate">{block.subagent.label || 'subagent'}</span>
+                  <span className="text-text-muted shrink-0">{block.subagent.status || ''}</span>
+                </div>
+                {block.subagent.task && (
+                  <div className="mt-1 text-text-muted">{truncate(block.subagent.task, 160)}</div>
+                )}
+                {block.subagent.error && (
+                  <div className="mt-1 text-status-error">{block.subagent.error}</div>
+                )}
+              </div>
+
+              {Array.isArray(block.subagent.blocks) && block.subagent.blocks.length > 0 && (
+                <div className="mt-1 ml-3 border-l border-border-soft pl-2.5 space-y-1.5">
+                  {block.subagent.blocks.map(sb => {
+                    if (!sb || !sb.type) return null
+                    if (sb.type === 'thinking') return <ThinkingBlock key={sb.id} block={sb} />
+                    if (sb.type === 'tool_call') return <ToolUseBlock key={sb.id} block={sb} />
+                    if (sb.type === 'diff') return <PatchBlock key={sb.id} block={sb} />
+                    if (sb.type === 'assistant') {
+                      return (
+                        <div key={sb.id}>
+                          <span className="text-[10px] text-text-muted block mb-0.5">Assistant</span>
+                          <pre className="text-[11px] text-text-secondary bg-bg-secondary/35 border border-border-soft rounded p-2 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">
+                            {sb.text || ''}
+                          </pre>
+                        </div>
+                      )
+                    }
+                    if (sb.type === 'error') {
+                      return (
+                        <div key={sb.id}>
+                          <span className="text-[10px] text-text-muted flex items-center gap-1 mb-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-status-error" />
+                            Error
+                          </span>
+                          <pre className="text-[11px] text-text-secondary bg-bg-secondary/35 border border-border-soft rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                            {sb.text || ''}
+                          </pre>
+                        </div>
+                      )
+                    }
+                    return null
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {block.output && (
             <div>
               <span className="text-[10px] text-text-muted block mb-0.5">Output</span>

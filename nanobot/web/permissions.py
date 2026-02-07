@@ -40,6 +40,10 @@ class PermissionManager:
         if not self._settings.tool_enabled(tool_name):
             return "deny"
 
+        if tool_name == "spawn_subagent":
+            # Compute-only orchestration; subagent tools still go through approvals.
+            return "allow"
+
         if tool_name in self._session_overrides.get(session_id, {}):
             return self._session_overrides[session_id][tool_name]
 

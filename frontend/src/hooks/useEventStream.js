@@ -231,6 +231,56 @@ function reducer(state, action) {
           }
         }
 
+
+
+        case 'subagent': {
+          const next = flushStreamingAssistant(state, ts)
+          const parentId = payload.parent_tool_call_id
+          if (!parentId) return next
+
+          const blocks = next.blocks.map(b => {
+            if (b.id !== parentId || b.type !== 'tool_call') return b
+            const prev = b.subagent || {}
+            return {
+              ...b,
+              subagent: {
+                ...prev,
+                subagent_id: payload.subagent_id || prev.subagent_id || null,
+                status: payload.status || prev.status || 'running',
+                label: payload.label || prev.label || '',
+                task: payload.task || prev.task || '',
+                result: payload.result || prev.result || '',
+                error: payload.error || prev.error || '',
+                blocks: Array.isArray(prev.blocks) ? prev.blocks : [],
+              },
+            }
+          })
+
+          return { ...next, status: 'running', blocks }
+        }
+
+        case 'subagent_block': {
+          const next = flushStreamingAssistant(state, ts)
+          const parentId = payload.parent_tool_call_id
+          const blk = payload.block
+          if (!parentId || !blk) return next
+
+          const blk2 = { ...blk, ts: blk.ts || ts }
+
+          const blocks = next.blocks.map(b => {
+            if (b.id !== parentId || b.type !== 'tool_call') return b
+            const prev = b.subagent || {}
+            const arr = Array.isArray(prev.blocks) ? prev.blocks : []
+            const existingIdx = arr.findIndex(x => x.id === blk2.id)
+            const nextArr = existingIdx >= 0
+              ? arr.map(x => (x.id === blk2.id ? { ...x, ...blk2 } : x))
+              : [...arr, blk2]
+
+            return { ...b, subagent: { ...prev, blocks: nextArr } }
+          })
+
+          return { ...next, status: 'running', blocks }
+        }
         case 'final': {
           let next = flushStreamingAssistant(state, ts)
           const text = payload.text || ''

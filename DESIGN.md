@@ -42,12 +42,13 @@ Scope: MVP first (runnable end-to-end), then iterate toward the full checklist.
 
 5. Tools + permissions:
    - Tool registry with JSON schema:
-     - `run_command`, `read_file`, `write_file`, `apply_patch`, `search`, `http_fetch`
+     - `read_file`, `write_file`, `apply_patch`, `search`, `http_fetch`, `spawn_subagent`
    - Tool execution:
      - emits `tool_call` then `tool_result`
      - records timing, errors
      - for file mutations emits `diff` and persists `file_change`
-     - for commands emits `terminal_chunk` while streaming output
+     - captures per-session file versions for rollback
+     - `spawn_subagent` emits nested subagent events under the parent tool call
    - Permission gate (per tool): `deny` / `ask` / `allow`
      - `ask` triggers a UI approval modal and blocks tool execution until resolved
      - decisions can be "once / this session / always"
@@ -56,12 +57,12 @@ Scope: MVP first (runnable end-to-end), then iterate toward the full checklist.
    - Three columns:
      - left: session list
      - center: chat timeline (Chat Mode) or full trace (Agent Mode)
-     - right: Inspector tabs: Trace / Files / Terminal / Context / Permissions
+     - right: Inspector tabs: Trace / Files / Context / Permissions
    - Streaming rendering:
      - `message_delta` appends incrementally
      - tool cards update per `tool_call`/`tool_result`
-     - terminal scrolls per `terminal_chunk`
      - diffs render with highlight and fold
+     - subagent trees render inside the parent tool card
 
 ## Two-Stage WebUI Architecture
 
