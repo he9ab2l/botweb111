@@ -75,7 +75,7 @@ class PermissionResolveRequest(BaseModel):
 
 
 class PermissionModeRequest(BaseModel):
-    mode: str = Field(pattern="^(ask|allow)$")
+    mode: str = Field(pattern="^(ask|allow|trust|partial_trust)$")
 
 
 class ContextPinRequest(BaseModel):
