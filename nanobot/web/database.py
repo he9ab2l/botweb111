@@ -753,6 +753,20 @@ class Database:
             )
             conn.commit()
 
+    def set_tool_permissions_bulk(self, policies: dict[str, str]) -> None:
+        if not policies:
+            return
+        with self._lock:
+            conn = self._get_conn()
+            now = _now_iso()
+            for tool_name, policy in policies.items():
+                conn.execute(
+                    "INSERT INTO tool_permissions (tool_name, policy, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(tool_name) DO UPDATE SET policy = excluded.policy, updated_at = excluded.updated_at",
+                    (tool_name, policy, now),
+                )
+            conn.commit()
+
     def get_tool_permissions(self) -> dict[str, str]:
         with self._lock:
             conn = self._get_conn()

@@ -24,6 +24,8 @@ export const clearSessionModel = client.clearSessionModel
 
 export const getDocs = client.getDocs
 export const getDocFile = client.getDocFile
+export const getPermissionMode = client.getPermissionMode
+export const setPermissionMode = client.setPermissionMode
 
 export const fsTree = client.fsTree
 export const fsRead = client.fsRead

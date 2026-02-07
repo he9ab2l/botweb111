@@ -74,6 +74,10 @@ class PermissionResolveRequest(BaseModel):
     scope: str = Field(pattern="^(once|session|always)$")
 
 
+class PermissionModeRequest(BaseModel):
+    mode: str = Field(pattern="^(ask|allow)$")
+
+
 class ContextPinRequest(BaseModel):
     context_id: str = Field(min_length=1)
 
@@ -972,8 +976,7 @@ cp ./config.example.json ~/.nanobot/config.json
 
     # ── Tools ────────────────────────────────────────────────────
 
-    @app.get("/api/v2/tools")
-    async def list_tools_v2() -> dict[str, Any]:
+    def _tool_registry():
         cfg = _load_cfg()
         brave_api_key = cfg.tools.web.search.api_key or None
         fs_root_ = settings.resolved_fs_root().expanduser().resolve()
@@ -991,11 +994,48 @@ cp ./config.example.json ~/.nanobot/config.json
         reg.register(SearchTool(api_key=brave_api_key))
         reg.register(HttpFetchTool())
         reg.register(SpawnSubagentTool(None))
+        return reg
+
+    def _tool_names() -> list[str]:
+        reg = _tool_registry()
+        return [d.get('name') for d in reg.get_definitions() if d.get('name')]
+
+    def _permission_mode(tool_names: list[str]) -> str:
+        perms = db.get_tool_permissions()
+        if not tool_names:
+            return 'ask'
+        values = [perms.get(n) for n in tool_names]
+        if all(v == 'allow' for v in values):
+            return 'allow'
+        if all((v is None or v == '' or v == 'ask') for v in values):
+            return 'ask'
+        return 'custom'
+
+    @app.get("/api/v2/permissions/mode")
+    async def get_permission_mode() -> dict[str, Any]:
+        names = _tool_names()
+        return {"mode": _permission_mode(names), "tools": names}
+
+    @app.post("/api/v2/permissions/mode")
+    async def set_permission_mode(payload: PermissionModeRequest) -> dict[str, Any]:
+        names = _tool_names()
+        mode = (payload.mode or '').strip()
+        if mode not in ('ask', 'allow'):
+            raise HTTPException(status_code=400, detail='invalid mode')
+        policies = {n: mode for n in names}
+        db.set_tool_permissions_bulk(policies)
+        return {"ok": True, "mode": mode}
+
+    @app.get("/api/v2/tools")
+    async def list_tools_v2() -> dict[str, Any]:
+        reg = _tool_registry()
         defs = reg.get_definitions()
         perms = db.get_tool_permissions()
+        names = [d.get("name") for d in defs if d.get("name")]
         return {
             "tools": defs,
             "tool_permissions": perms,
+            "permission_mode": _permission_mode(names),
             "tool_enabled": {
                 "run_command": settings.tool_enabled_run_command,
                 "read_file": settings.tool_enabled_read_file,

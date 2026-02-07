@@ -642,6 +642,18 @@ export default function App() {
                 Chat
               </button>
               <button
+                onClick={() => setViewMode('docs')}
+                className={cn(
+                  'px-2 py-0.5 rounded text-xs transition-colors',
+                  viewMode === 'docs'
+                    ? 'bg-bg text-text-primary border border-border-soft'
+                    : 'text-text-muted hover:text-text-secondary'
+                )}
+                title="Docs mode: show the active document"
+              >
+                Docs
+              </button>
+              <button
                 onClick={() => setViewMode('agent')}
                 className={cn(
                   'px-2 py-0.5 rounded text-xs transition-colors',

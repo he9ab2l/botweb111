@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { KeyRound, Settings, X } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { clearSessionModel, getConfig, getSessionModel, setSessionModel, updateConfig } from '../lib/api'
+import { clearSessionModel, getConfig, getSessionModel, setSessionModel, updateConfig, getPermissionMode, setPermissionMode } from '../lib/api'
 
 export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated }) {
   const [loading, setLoading] = useState(false)
@@ -10,6 +10,9 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
   const [sessionModel, setSessionModelInfo] = useState(null)
 
   const [chatModelInput, setChatModelInput] = useState('')
+
+  const [permissionMode, setPermissionModeState] = useState('ask')
+  const [permissionBusy, setPermissionBusy] = useState(false)
 
   const [glmKeyInput, setGlmKeyInput] = useState('')
   const [glmBaseInput, setGlmBaseInput] = useState('')
@@ -34,6 +37,9 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
         setSessionModelInfo(null)
         setChatModelInput(cfg?.default_model || '')
       }
+
+      const pm = await getPermissionMode()
+      if (pm?.mode) setPermissionModeState(pm.mode)
     } catch (e) {
       setErr(e?.message || 'Failed to load settings')
     } finally {
@@ -215,6 +221,73 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                 Set As Default
               </button>
             </div>
+          </section>
+
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[11px] text-text-muted uppercase tracking-wide">Permissions</div>
+                <div className="text-[12px] text-text-secondary">
+                  {permissionMode === 'allow' ? 'All tools run without prompts.' : permissionMode === 'custom' ? 'Custom per-tool policy.' : 'Ask before running tools.'}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={async () => {
+                  setErr('')
+                  setPermissionBusy(true)
+                  try {
+                    await setPermissionMode('ask')
+                    setPermissionModeState('ask')
+                    onUpdated?.()
+                  } catch (e) {
+                    setErr(e?.message || 'Failed to update permissions')
+                  } finally {
+                    setPermissionBusy(false)
+                  }
+                }}
+                disabled={permissionBusy}
+                className={cn(
+                  'px-3 py-2 rounded border text-[12px] transition-colors',
+                  permissionMode === 'ask'
+                    ? 'bg-btn-primary text-white border-transparent hover:bg-btn-primary-hover'
+                    : 'bg-bg-secondary text-text-secondary border-border-soft hover:border-border hover:text-text-primary'
+                )}
+              >
+                Require Approval
+              </button>
+
+              <button
+                onClick={async () => {
+                  setErr('')
+                  setPermissionBusy(true)
+                  try {
+                    await setPermissionMode('allow')
+                    setPermissionModeState('allow')
+                    onUpdated?.()
+                  } catch (e) {
+                    setErr(e?.message || 'Failed to update permissions')
+                  } finally {
+                    setPermissionBusy(false)
+                  }
+                }}
+                disabled={permissionBusy}
+                className={cn(
+                  'px-3 py-2 rounded border text-[12px] transition-colors',
+                  permissionMode === 'allow'
+                    ? 'bg-btn-primary text-white border-transparent hover:bg-btn-primary-hover'
+                    : 'bg-bg-secondary text-text-secondary border-border-soft hover:border-border hover:text-text-primary'
+                )}
+              >
+                Allow All Tools
+              </button>
+            </div>
+
+            <p className="text-[11px] text-text-muted">
+              Require Approval is safer. Allow All skips prompts for read/write/search/fetch tools.
+            </p>
           </section>
 
           <section className="space-y-2">

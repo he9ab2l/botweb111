@@ -22,6 +22,9 @@ export type Client = {
   getDocs: () => Promise<any>
   getDocFile: (path: string) => Promise<any>
 
+  getPermissionMode: () => Promise<any>
+  setPermissionMode: (mode: string) => Promise<any>
+
   getEvents: (sessionId: string, opts?: { since?: number; since_seq?: number }) => Promise<EventEnvelope[]>
   subscribeEvents: (opts: {
     sessionId: string
@@ -135,6 +138,9 @@ export function createClient(opts: { baseUrl?: string; fetch?: FetchLike } = {})
 
     getDocs: () => api('/docs'),
     getDocFile: (path) => api(`/docs/file?path=${encodeURIComponent(path)}`),
+
+    getPermissionMode: () => api(`/permissions/mode`),
+    setPermissionMode: (mode) => api(`/permissions/mode`, { method: "POST", body: { mode } }),
 
     getEvents: (sessionId, opts2 = {}) => {
       const q = new URLSearchParams()

@@ -11,9 +11,13 @@ import { cn } from '../lib/utils'
 
 export default function ChatTimeline({ blocks, streamingText, streamingBlockId, viewMode, status, doc }) {
   const isChat = viewMode === 'chat'
+  const showMessages = viewMode !== 'docs'
 
   // In chat mode, separate visible messages from execution trace
   const { visibleBlocks, traceBlocks } = useMemo(() => {
+    if (!showMessages) {
+      return { visibleBlocks: [], traceBlocks: [] }
+    }
     if (!isChat) {
       return { visibleBlocks: blocks, traceBlocks: [] }
     }
@@ -30,9 +34,9 @@ export default function ChatTimeline({ blocks, streamingText, streamingBlockId, 
     }
 
     return { visibleBlocks: visible, traceBlocks: trace }
-  }, [blocks, isChat])
+  }, [blocks, isChat, showMessages])
 
-  const isStreaming = !!streamingBlockId && !!streamingText
+  const isStreaming = showMessages && !!streamingBlockId && !!streamingText
 
   return (
     <ScrollToBottom deps={[blocks.length, streamingText]}>
@@ -51,10 +55,17 @@ export default function ChatTimeline({ blocks, streamingText, streamingBlockId, 
           />
         )}
 
-        {visibleBlocks.length === 0 && !isStreaming && (
+        {showMessages && visibleBlocks.length === 0 && !isStreaming && (
           <div className="flex flex-col items-center justify-center h-full py-24 text-center">
             <h2 className="text-sm text-text-secondary mb-1">fanfan</h2>
             <p className="text-xs text-text-muted">Send a message to get started</p>
+          </div>
+        )}
+
+        {!showMessages && !doc && (
+          <div className="flex flex-col items-center justify-center h-full py-24 text-center">
+            <h2 className="text-sm text-text-secondary mb-1">Docs</h2>
+            <p className="text-xs text-text-muted">Select a document from the left sidebar</p>
           </div>
         )}
 
