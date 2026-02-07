@@ -230,9 +230,15 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
           <section className="space-y-2">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-[11px] text-text-muted uppercase tracking-wide">Permissions</div>
+                <div className="text-[11px] text-text-muted uppercase tracking-wide">Trust Mode</div>
                 <div className="text-[12px] text-text-secondary">
-                  {permissionMode === 'allow' ? 'All tools run without prompts.' : permissionMode === 'custom' ? 'Custom per-tool policy.' : 'Ask before running tools.'}
+                  {permissionMode === 'trust' || permissionMode === 'allow'
+                    ? 'Full trust: all tools run without prompts.'
+                    : permissionMode === 'partial_trust'
+                    ? 'Partial trust: read/search allowed, write/exec require approval.'
+                    : permissionMode === 'custom'
+                    ? 'Custom per-tool policy.'
+                    : 'All tools require approval.'}
                 </div>
               </div>
             </div>
@@ -243,8 +249,8 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                   setErr('')
                   setPermissionBusy(true)
                   try {
-                    await setPermissionMode('ask')
-                    setPermissionModeState('ask')
+                    await setPermissionMode('trust')
+                    setPermissionModeState('trust')
                     onUpdated?.()
                   } catch (e) {
                     setErr(e?.message || 'Failed to update permissions')
@@ -255,12 +261,12 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                 disabled={permissionBusy}
                 className={cn(
                   'px-3 py-2 rounded border text-[12px] transition-colors',
-                  permissionMode === 'ask'
+                  permissionMode === 'trust' || permissionMode === 'allow'
                     ? 'bg-btn-primary text-white border-transparent hover:bg-btn-primary-hover'
                     : 'bg-bg-secondary text-text-secondary border-border-soft hover:border-border hover:text-text-primary'
                 )}
               >
-                Require Approval
+                Trust
               </button>
 
               <button
@@ -268,8 +274,8 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                   setErr('')
                   setPermissionBusy(true)
                   try {
-                    await setPermissionMode('allow')
-                    setPermissionModeState('allow')
+                    await setPermissionMode('partial_trust')
+                    setPermissionModeState('partial_trust')
                     onUpdated?.()
                   } catch (e) {
                     setErr(e?.message || 'Failed to update permissions')
@@ -280,17 +286,19 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                 disabled={permissionBusy}
                 className={cn(
                   'px-3 py-2 rounded border text-[12px] transition-colors',
-                  permissionMode === 'allow'
+                  permissionMode === 'partial_trust'
                     ? 'bg-btn-primary text-white border-transparent hover:bg-btn-primary-hover'
                     : 'bg-bg-secondary text-text-secondary border-border-soft hover:border-border hover:text-text-primary'
                 )}
               >
-                Allow All Tools
+                Partial Trust
               </button>
             </div>
 
             <p className="text-[11px] text-text-muted">
-              Require Approval is safer. Allow All skips prompts for read/write/search/fetch tools.
+              <strong>Trust</strong>: all tools (including exec, write, patch) run automatically.
+              <br />
+              <strong>Partial Trust</strong>: read/search run automatically; write/exec/patch require approval.
             </p>
           </section>
 
@@ -317,7 +325,7 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                 className="w-full px-3 py-2 rounded border border-border-soft bg-bg text-[12px] font-mono text-text-secondary focus:outline-none focus:ring-2 focus:ring-btn-primary/40"
                 value={openrouterKeyInput}
                 onChange={(e) => setOpenrouterKeyInput(e.target.value)}
-                placeholder="Enter OpenRouter API key (stored in ~/.nanobot/config.json)"
+                placeholder="Enter OpenRouter API key (stored in ~/.fanfan/config.json)"
                 type="password"
                 autoComplete="off"
               />
@@ -409,7 +417,7 @@ export default function ModelSettingsModal({ open, sessionId, onClose, onUpdated
                 className="w-full px-3 py-2 rounded border border-border-soft bg-bg text-[12px] font-mono text-text-secondary focus:outline-none focus:ring-2 focus:ring-btn-primary/40"
                 value={glmKeyInput}
                 onChange={(e) => setGlmKeyInput(e.target.value)}
-                placeholder="Enter GLM API key (stored in ~/.nanobot/config.json)"
+                placeholder="Enter GLM API key (stored in ~/.fanfan/config.json)"
                 type="password"
                 autoComplete="off"
               />

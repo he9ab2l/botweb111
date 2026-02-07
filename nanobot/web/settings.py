@@ -79,7 +79,7 @@ class WebSettings(BaseSettings):
     tool_policy_http_fetch: Policy | None = None
 
     # Tool enable flags
-    tool_enabled_run_command: bool = False
+    tool_enabled_run_command: bool = True
     tool_enabled_read_file: bool = True
     tool_enabled_write_file: bool = True
     tool_enabled_apply_patch: bool = True

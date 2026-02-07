@@ -1035,15 +1035,31 @@ cp ./config.example.json ~/.fanfan/config.json
                 names.append(name)
         return names
 
+    _SAFE_TOOLS = {"read_file", "search", "http_fetch", "spawn_subagent"}
+
     def _permission_mode(tool_names: list[str]) -> str:
         perms = db.get_tool_permissions()
         if not tool_names:
             return 'ask'
-        values = [perms.get(n) for n in tool_names]
-        if all(v == 'allow' for v in values):
-            return 'allow'
-        if all((v is None or v == '' or v == 'ask') for v in values):
+        values = {n: perms.get(n) for n in tool_names}
+
+        # Check for "trust" (all allow)
+        if all(v == 'allow' for v in values.values()):
+            return 'trust'
+
+        # Check for "partial_trust" (safe tools allow, rest ask)
+        safe_allow = all(values.get(n) == 'allow' for n in tool_names if n in _SAFE_TOOLS)
+        rest_ask = all(
+            (values.get(n) is None or values.get(n) == '' or values.get(n) == 'ask')
+            for n in tool_names if n not in _SAFE_TOOLS
+        )
+        if safe_allow and rest_ask and len(tool_names) > 0:
+            return 'partial_trust'
+
+        # Check for "ask" (all ask or unset)
+        if all((v is None or v == '' or v == 'ask') for v in values.values()):
             return 'ask'
+
         return 'custom'
 
     @app.get("/api/v2/permissions/mode")
@@ -1051,15 +1067,37 @@ cp ./config.example.json ~/.fanfan/config.json
         names = _tool_names()
         return {"mode": _permission_mode(names), "tools": names}
 
+    # High-level trust modes:
+    #   "trust"         -> all tools allowed (no prompts)
+    #   "partial_trust"  -> read/search allowed, write/exec/patch ask
+    # Legacy modes still accepted:
+    #   "allow" -> alias for "trust"
+    #   "ask"   -> all tools require approval
+
     @app.post("/api/v2/permissions/mode")
     async def set_permission_mode(payload: PermissionModeRequest) -> dict[str, Any]:
         names = _tool_names()
         mode = (payload.mode or '').strip()
-        if mode not in ('ask', 'allow'):
-            raise HTTPException(status_code=400, detail='invalid mode')
-        policies = {n: mode for n in names}
+
+        if mode == 'trust' or mode == 'allow':
+            policies = {n: 'allow' for n in names}
+            effective = 'trust'
+        elif mode == 'partial_trust':
+            policies = {}
+            for n in names:
+                if n in _SAFE_TOOLS:
+                    policies[n] = 'allow'
+                else:
+                    policies[n] = 'ask'
+            effective = 'partial_trust'
+        elif mode == 'ask':
+            policies = {n: 'ask' for n in names}
+            effective = 'ask'
+        else:
+            raise HTTPException(status_code=400, detail='invalid mode; use trust, partial_trust, or ask')
+
         db.set_tool_permissions_bulk(policies)
-        return {"ok": True, "mode": mode}
+        return {"ok": True, "mode": effective}
 
     @app.get("/api/v2/tools")
     async def list_tools_v2() -> dict[str, Any]:
