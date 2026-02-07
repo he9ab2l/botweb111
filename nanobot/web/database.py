@@ -111,6 +111,12 @@ class Database:
             # v2 schema
             conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS session_settings (
+                    session_id  TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                    model       TEXT NOT NULL DEFAULT '',
+                    updated_at  TEXT NOT NULL DEFAULT ''
+                );
+
                 CREATE TABLE IF NOT EXISTS turns (
                     id          TEXT PRIMARY KEY,
                     session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -278,6 +284,33 @@ class Database:
             conn = self._get_conn()
             row = conn.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,)).fetchone()
             return row is not None
+
+    def get_session_model_override(self, session_id: str) -> str | None:
+        """Return a per-session model override, if set."""
+        with self._lock:
+            conn = self._get_conn()
+            row = conn.execute("SELECT model FROM session_settings WHERE session_id = ?", (session_id,)).fetchone()
+            if not row:
+                return None
+            m = str(row["model"] or "").strip()
+            return m or None
+
+    def set_session_model_override(self, session_id: str, model: str) -> None:
+        m = (model or "").strip()
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                "INSERT INTO session_settings (session_id, model, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(session_id) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at",
+                (session_id, m, _now_iso()),
+            )
+            conn.commit()
+
+    def clear_session_model_override(self, session_id: str) -> None:
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute("DELETE FROM session_settings WHERE session_id = ?", (session_id,))
+            conn.commit()
 
     # ── Messages ──────────────────────────────────────────────────
 

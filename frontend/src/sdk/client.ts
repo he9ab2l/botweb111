@@ -12,6 +12,13 @@ export type Client = {
   createTurn: (sessionId: string, content: string) => Promise<any>
   cancelRun: (sessionId: string) => Promise<any>
 
+  getConfig: () => Promise<any>
+  updateConfig: (body: any) => Promise<any>
+
+  getSessionModel: (sessionId: string) => Promise<any>
+  setSessionModel: (sessionId: string, model: string) => Promise<any>
+  clearSessionModel: (sessionId: string) => Promise<any>
+
   getEvents: (sessionId: string, opts?: { since?: number; since_seq?: number }) => Promise<EventEnvelope[]>
   subscribeEvents: (opts: {
     sessionId: string
@@ -114,6 +121,14 @@ export function createClient(opts: { baseUrl?: string; fetch?: FetchLike } = {})
     createTurn: (sessionId, content) =>
       api(`/sessions/${encodeURIComponent(sessionId)}/turns`, { method: 'POST', body: { content } }),
     cancelRun: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' }),
+
+    getConfig: () => api('/config'),
+    updateConfig: (body) => api('/config', { method: 'POST', body }),
+
+    getSessionModel: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/model`),
+    setSessionModel: (sessionId, model) =>
+      api(`/sessions/${encodeURIComponent(sessionId)}/model`, { method: 'POST', body: { model } }),
+    clearSessionModel: (sessionId) => api(`/sessions/${encodeURIComponent(sessionId)}/model`, { method: 'DELETE' }),
 
     getEvents: (sessionId, opts2 = {}) => {
       const q = new URLSearchParams()

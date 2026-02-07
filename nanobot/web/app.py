@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from nanobot.config.loader import load_config
+from nanobot.config.loader import get_config_path, load_config, save_config
 from nanobot.providers.litellm_provider import LiteLLMProvider
 from nanobot.web.database import Database
 from nanobot.web.event_bus import EventBus
@@ -36,7 +36,7 @@ from nanobot.web.runner import FanfanWebRunner
 from nanobot.web.settings import WebSettings, repo_root
 
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 
 
 def _now_iso() -> str:
@@ -83,16 +83,22 @@ class FsRollbackRequest(BaseModel):
     version_id: str = Field(min_length=1)
 
 
+class SessionModelSetRequest(BaseModel):
+    model: str = Field(min_length=1)
+
+
+class ProviderUpdateRequest(BaseModel):
+    api_key: str | None = None
+    api_base: str | None = None
+
+
+class ConfigUpdateRequest(BaseModel):
+    default_model: str | None = None
+    providers: dict[str, ProviderUpdateRequest] | None = None
+
+
 def create_app() -> FastAPI:
     settings = WebSettings()
-
-    config = load_config()
-    api_key = config.get_api_key()
-    api_base = config.get_api_base()
-    model = config.agents.defaults.model
-    is_bedrock = model.startswith("bedrock/")
-
-    missing_llm_config = (not api_key and not is_bedrock)
 
     # DB + event bus (v2)
     data_dir = settings.resolved_data_dir()
@@ -118,14 +124,58 @@ def create_app() -> FastAPI:
     bus = EventBus(db)
     permissions = PermissionManager(db=db, settings=settings)
 
-    provider: LiteLLMProvider | None = None
-    runner: FanfanWebRunner | None = None
-    if not missing_llm_config:
-        provider = LiteLLMProvider(
-            api_key=api_key,
-            api_base=api_base,
+    def _load_cfg():
+        return load_config()
+
+    def _any_provider_key(cfg) -> bool:
+        try:
+            p = cfg.providers
+            return bool(
+                p.openrouter.api_key
+                or p.anthropic.api_key
+                or p.openai.api_key
+                or p.deepseek.api_key
+                or p.groq.api_key
+                or p.zhipu.api_key
+                or p.vllm.api_key
+                or p.gemini.api_key
+                or p.moonshot.api_key
+            )
+        except Exception:
+            return bool(cfg.get_api_key())
+
+    def _llm_configured() -> bool:
+        cfg = _load_cfg()
+        return bool(_any_provider_key(cfg) or cfg.agents.defaults.model.startswith("bedrock/"))
+
+    def _effective_model(cfg, session_id: str) -> tuple[str, str | None, str]:
+        default_model = cfg.agents.defaults.model
+        override = db.get_session_model_override(session_id) if session_id else None
+        effective = override or default_model
+        return effective, override, default_model
+
+    def _make_provider(cfg, model: str) -> LiteLLMProvider:
+        return LiteLLMProvider(
+            api_key=cfg.get_api_key(model),
+            api_base=cfg.get_api_base(model),
             default_model=model,
         )
+
+    def _make_runner_for_session(session_id: str) -> tuple[FanfanWebRunner, str]:
+        cfg = _load_cfg()
+        model, _override, _default = _effective_model(cfg, session_id)
+        api_key = cfg.get_api_key(model)
+        is_bedrock = model.startswith("bedrock/")
+        if not api_key and not is_bedrock:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "LLM not configured. Open Settings and add a provider API key (e.g. GLM/Z.ai), "
+                    "then retry."
+                ),
+            )
+
+        provider = _make_provider(cfg, model)
         runner = FanfanWebRunner(
             db=db,
             bus=bus,
@@ -133,9 +183,10 @@ def create_app() -> FastAPI:
             provider=provider,
             settings=settings,
             model=model,
-            max_iterations=config.agents.defaults.max_tool_iterations,
-            brave_api_key=config.tools.web.search.api_key or None,
+            max_iterations=cfg.agents.defaults.max_tool_iterations,
+            brave_api_key=cfg.tools.web.search.api_key or None,
         )
+        return runner, model
 
     running_tasks: dict[str, asyncio.Task[None]] = {}
     sessions_lock = asyncio.Lock()
@@ -339,15 +390,6 @@ cp ./config.example.json ~/.nanobot/config.json
 </html>"""
         return HTMLResponse(content=html, status_code=200)
 
-    def _require_runner() -> FanfanWebRunner:
-        if missing_llm_config or runner is None:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "LLM API key not configured. Create ~/.nanobot/config.json (see config.example.json) and restart the service."
-                ),
-            )
-        return runner
 
     # ── Health ───────────────────────────────────────────────────
 
@@ -357,7 +399,7 @@ cp ./config.example.json ~/.nanobot/config.json
             "ok": True,
             "time": _now_iso(),
             "version": APP_VERSION,
-            "llm_configured": not missing_llm_config,
+            "llm_configured": _llm_configured(),
             "ui_mode": settings.ui_mode,
         }
 
@@ -367,7 +409,7 @@ cp ./config.example.json ~/.nanobot/config.json
             "ok": True,
             "time": _now_iso(),
             "version": APP_VERSION,
-            "llm_configured": not missing_llm_config,
+            "llm_configured": _llm_configured(),
             "db_path": str(settings.resolved_db_path()),
         }
 
@@ -375,6 +417,74 @@ cp ./config.example.json ~/.nanobot/config.json
     @app.get("/api/v1/health")
     async def health_v1() -> dict[str, Any]:
         return await health_v2()
+
+    # ── Config / Models ─────────────────────────────────────────
+
+    def _config_summary(cfg) -> dict[str, Any]:
+        p = cfg.providers
+        return {
+            "config_path": str(get_config_path()),
+            "default_model": cfg.agents.defaults.model,
+            "llm_configured": _llm_configured(),
+            "providers": {
+                "openrouter": {
+                    "configured": bool(p.openrouter.api_key),
+                    "api_base": p.openrouter.api_base or "https://openrouter.ai/api/v1",
+                },
+                "anthropic": {"configured": bool(p.anthropic.api_key), "api_base": p.anthropic.api_base},
+                "openai": {"configured": bool(p.openai.api_key), "api_base": p.openai.api_base},
+                "deepseek": {"configured": bool(p.deepseek.api_key), "api_base": p.deepseek.api_base},
+                "gemini": {"configured": bool(p.gemini.api_key), "api_base": p.gemini.api_base},
+                "groq": {"configured": bool(p.groq.api_key), "api_base": p.groq.api_base},
+                "moonshot": {"configured": bool(p.moonshot.api_key), "api_base": p.moonshot.api_base},
+                "zhipu": {"configured": bool(p.zhipu.api_key), "api_base": p.zhipu.api_base},
+                "vllm": {"configured": bool(p.vllm.api_key), "api_base": p.vllm.api_base},
+            },
+            "recommended_models": [
+                "anthropic/claude-opus-4-5",
+                "openrouter/anthropic/claude-3.5-sonnet",
+                "openai/gpt-4o",
+                "zai/glm-4",
+                "zai/glm-4-plus",
+            ],
+        }
+
+    @app.get("/api/v2/config")
+    async def get_config_v2() -> dict[str, Any]:
+        cfg = _load_cfg()
+        return _config_summary(cfg)
+
+    @app.post("/api/v2/config")
+    async def update_config_v2(payload: ConfigUpdateRequest) -> dict[str, Any]:
+        cfg = _load_cfg()
+
+        if payload.default_model is not None:
+            cfg.agents.defaults.model = (payload.default_model or "").strip()
+
+        if payload.providers is not None:
+            allowed = {
+                "openrouter",
+                "anthropic",
+                "openai",
+                "deepseek",
+                "gemini",
+                "groq",
+                "moonshot",
+                "zhipu",
+                "vllm",
+            }
+            for name, upd in (payload.providers or {}).items():
+                if name not in allowed:
+                    raise HTTPException(status_code=400, detail=f"Unknown provider: {name}")
+                p = getattr(cfg.providers, name)
+                if upd.api_key is not None:
+                    p.api_key = (upd.api_key or "").strip()
+                if upd.api_base is not None:
+                    b = (upd.api_base or "").strip()
+                    p.api_base = b or None
+
+        save_config(cfg)
+        return _config_summary(cfg)
 
     # ── Sessions (v1 + v2) ───────────────────────────────────────
 
@@ -406,6 +516,38 @@ cp ./config.example.json ~/.nanobot/config.json
             raise HTTPException(status_code=404, detail="session not found")
         record["messages"] = db.get_messages(session_id)
         return record
+
+    @app.get("/api/v2/sessions/{session_id}/model")
+    async def get_session_model_v2(session_id: str) -> dict[str, Any]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+        cfg = _load_cfg()
+        override = db.get_session_model_override(session_id)
+        default_model = cfg.agents.defaults.model
+        effective = override or default_model
+        return {
+            "session_id": session_id,
+            "default_model": default_model,
+            "override_model": override,
+            "effective_model": effective,
+        }
+
+    @app.post("/api/v2/sessions/{session_id}/model")
+    async def set_session_model_v2(session_id: str, payload: SessionModelSetRequest) -> dict[str, Any]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+        m = (payload.model or "").strip()
+        if not m:
+            raise HTTPException(status_code=400, detail="model is required")
+        db.set_session_model_override(session_id, m)
+        return await get_session_model_v2(session_id)
+
+    @app.delete("/api/v2/sessions/{session_id}/model")
+    async def clear_session_model_v2(session_id: str) -> dict[str, Any]:
+        if not db.session_exists(session_id):
+            raise HTTPException(status_code=404, detail="session not found")
+        db.clear_session_model_override(session_id)
+        return await get_session_model_v2(session_id)
 
     def _collect_session_export(session_id: str) -> dict[str, Any]:
         record = db.get_session(session_id)
@@ -578,9 +720,16 @@ cp ./config.example.json ~/.nanobot/config.json
     # ── Auto-naming helper ────────────────────────────────────────
 
     async def _auto_name_session(session_id: str, user_text: str) -> None:
-        if provider is None:
-            return
         try:
+            cfg = _load_cfg()
+            eff_model, _override, _default = _effective_model(cfg, session_id)
+            api_key = cfg.get_api_key(eff_model)
+            is_bedrock = eff_model.startswith("bedrock/")
+            if not api_key and not is_bedrock:
+                return
+
+            provider = _make_provider(cfg, eff_model)
+
             naming_messages = [
                 {
                     "role": "system",
@@ -593,7 +742,7 @@ cp ./config.example.json ~/.nanobot/config.json
                 },
                 {"role": "user", "content": user_text[:200]},
             ]
-            resp = await provider.chat(messages=naming_messages, tools=[], model=model)
+            resp = await provider.chat(messages=naming_messages, tools=[], model=eff_model)
             title = (resp.content or "").strip().strip('"').strip("'")[:30]
             if not title:
                 title = user_text[:20].strip()
@@ -605,7 +754,6 @@ cp ./config.example.json ~/.nanobot/config.json
     # ── Turns / Agent Runs ────────────────────────────────────────
 
     async def _start_turn(session_id: str, content: str) -> dict[str, Any]:
-        runner_ = _require_runner()
         if not db.session_exists(session_id):
             raise HTTPException(status_code=404, detail="session not found")
 
@@ -613,6 +761,8 @@ cp ./config.example.json ~/.nanobot/config.json
             existing = running_tasks.get(session_id)
             if existing and not existing.done():
                 raise HTTPException(status_code=409, detail="session is busy")
+
+        runner_, effective_model = _make_runner_for_session(session_id)
 
         # Persist user message (history)
         db.add_message(session_id, "user", content)
@@ -666,7 +816,7 @@ cp ./config.example.json ~/.nanobot/config.json
         async with sessions_lock:
             running_tasks[session_id] = task
 
-        return {"accepted": True, "session_id": session_id, "turn_id": turn_id}
+        return {"accepted": True, "session_id": session_id, "turn_id": turn_id, "model": effective_model}
 
     @app.post("/api/v2/sessions/{session_id}/turns")
     async def create_turn_v2(session_id: str, payload: TurnCreateRequest) -> dict[str, Any]:
@@ -736,7 +886,24 @@ cp ./config.example.json ~/.nanobot/config.json
 
     @app.get("/api/v2/tools")
     async def list_tools_v2() -> dict[str, Any]:
-        defs = runner._tools.get_definitions() if runner is not None else []  # type: ignore[attr-defined]
+        cfg = _load_cfg()
+        brave_api_key = cfg.tools.web.search.api_key or None
+        fs_root_ = settings.resolved_fs_root().expanduser().resolve()
+
+        from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool
+        from nanobot.agent.tools.opencode import HttpFetchTool, SearchTool
+        from nanobot.agent.tools.patch import ApplyPatchTool
+        from nanobot.agent.tools.registry import ToolRegistry
+        from nanobot.web.runner import SpawnSubagentTool
+
+        reg = ToolRegistry()
+        reg.register(ReadFileTool(root=fs_root_))
+        reg.register(WriteFileTool(root=fs_root_))
+        reg.register(ApplyPatchTool(allowed_root=fs_root_))
+        reg.register(SearchTool(api_key=brave_api_key))
+        reg.register(HttpFetchTool())
+        reg.register(SpawnSubagentTool(None))
+        defs = reg.get_definitions()
         perms = db.get_tool_permissions()
         return {
             "tools": defs,
@@ -1205,8 +1372,6 @@ cp ./config.example.json ~/.nanobot/config.json
 
         @app.get("/")
         async def serve_index():
-            if missing_llm_config:
-                return _setup_page()
             p = dist_dir / "index.html"
             if p.exists():
                 return FileResponse(str(p), headers={"Cache-Control": "no-store"})
@@ -1214,10 +1379,6 @@ cp ./config.example.json ~/.nanobot/config.json
 
         @app.get("/{full_path:path}")
         async def spa_fallback(full_path: str):
-            if missing_llm_config:
-                if full_path.startswith("api/"):
-                    raise HTTPException(status_code=404)
-                return _setup_page()
             if full_path.startswith("api/"):
                 raise HTTPException(status_code=404)
 
@@ -1242,8 +1403,6 @@ cp ./config.example.json ~/.nanobot/config.json
         # Proxy mode (remote/dev): proxy all non-API routes to the UI origin.
         @app.api_route("/", methods=["GET", "HEAD"])
         async def proxy_root(request: Request):
-            if missing_llm_config:
-                return _setup_page()
             target = settings.ui_url if settings.ui_mode == "remote" else settings.ui_dev_server_url
             return await _proxy_to(target, request, "")
 
@@ -1251,8 +1410,6 @@ cp ./config.example.json ~/.nanobot/config.json
         async def proxy_catchall(full_path: str, request: Request):
             if full_path.startswith("api/") or full_path.startswith("docs") or full_path == "openapi.json":
                 raise HTTPException(status_code=404)
-            if missing_llm_config:
-                return _setup_page()
             target = settings.ui_url if settings.ui_mode == "remote" else settings.ui_dev_server_url
             return await _proxy_to(target, request, full_path)
 

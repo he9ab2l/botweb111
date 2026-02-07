@@ -26,15 +26,20 @@ class LiteLLMProvider(LLMProvider):
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
-        
+
+        default_model_l = (default_model or "").lower()
+
         # Detect OpenRouter by api_key prefix or explicit api_base
         self.is_openrouter = (
             (api_key and api_key.startswith("sk-or-")) or
             (api_base and "openrouter" in api_base)
         )
         
-        # Track if using custom endpoint (vLLM, etc.)
-        self.is_vllm = bool(api_base) and not self.is_openrouter
+        # Track vLLM/OpenAI-compatible custom endpoints.
+        #
+        # IMPORTANT: Many providers (e.g. z.ai/GLM) may use a custom api_base but are NOT vLLM.
+        # Only treat as hosted_vllm when the model explicitly opts into it.
+        self.is_vllm = bool(api_base) and (("vllm" in default_model_l) or default_model_l.startswith("hosted_vllm/"))
         
         # Configure LiteLLM based on provider
         if api_key:
@@ -43,50 +48,61 @@ class LiteLLMProvider(LLMProvider):
             elif self.is_vllm:
                 os.environ["OPENAI_API_KEY"] = api_key
             elif "deepseek" in default_model:
-                os.environ.setdefault("DEEPSEEK_API_KEY", api_key)
+                os.environ["DEEPSEEK_API_KEY"] = api_key
             elif "anthropic" in default_model:
-                os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+                os.environ["ANTHROPIC_API_KEY"] = api_key
             elif "openai" in default_model or "gpt" in default_model:
-                os.environ.setdefault("OPENAI_API_KEY", api_key)
+                os.environ["OPENAI_API_KEY"] = api_key
             elif "gemini" in default_model.lower():
-                os.environ.setdefault("GEMINI_API_KEY", api_key)
+                os.environ["GEMINI_API_KEY"] = api_key
             elif "zhipu" in default_model or "glm" in default_model or "zai" in default_model:
-                os.environ.setdefault("ZHIPUAI_API_KEY", api_key)
-                os.environ.setdefault("ZAI_API_KEY", api_key)
+                # LiteLLM's GLM provider uses z.ai; keep both env names for compatibility.
+                os.environ["ZHIPUAI_API_KEY"] = api_key
+                os.environ["ZAI_API_KEY"] = api_key
             elif "groq" in default_model:
-                os.environ.setdefault("GROQ_API_KEY", api_key)
+                os.environ["GROQ_API_KEY"] = api_key
             elif "moonshot" in default_model or "kimi" in default_model:
-                os.environ.setdefault("MOONSHOT_API_KEY", api_key)
-                os.environ.setdefault("MOONSHOT_API_BASE", api_base or "https://api.moonshot.cn/v1")
+                os.environ["MOONSHOT_API_KEY"] = api_key
+                os.environ["MOONSHOT_API_BASE"] = api_base or "https://api.moonshot.cn/v1"
         
-        if api_base:
-            litellm.api_base = api_base
-        
+        # Do not set litellm.api_base globally; pass api_base per-request via kwargs.
+
         litellm.suppress_debug_info = True
 
     def _resolve_model(self, model: str | None) -> str:
         """Resolve model name with provider-specific prefixes."""
         model = model or self.default_model
+        model_l = model.lower()
+
+        # LiteLLM's GLM provider uses "zai/*". Accept legacy "zhipu/*" and normalize.
+        if model_l.startswith("zhipu/"):
+            model = "zai/" + model.split("/", 1)[1]
+            model_l = model.lower()
 
         if self.is_openrouter and not model.startswith("openrouter/"):
             model = f"openrouter/{model}"
 
-        if ("glm" in model.lower() or "zhipu" in model.lower()) and not (
+        if ("glm" in model_l or "zhipu" in model_l or model_l.startswith("zai/")) and not (
             model.startswith("zhipu/")
             or model.startswith("zai/")
             or model.startswith("openrouter/")
         ):
             model = f"zai/{model}"
 
-        if ("moonshot" in model.lower() or "kimi" in model.lower()) and not (
+        if ("moonshot" in model_l or "kimi" in model_l) and not (
             model.startswith("moonshot/") or model.startswith("openrouter/")
         ):
             model = f"moonshot/{model}"
 
-        if "gemini" in model.lower() and not model.startswith("gemini/"):
+        if "gemini" in model_l and not model.startswith("gemini/"):
             model = f"gemini/{model}"
 
         if self.is_vllm:
+            # Allow explicit prefixes (and strip "vllm/" to avoid double-prefixing).
+            if model.startswith("hosted_vllm/"):
+                return model
+            if model.startswith("vllm/"):
+                model = model.split("/", 1)[1]
             model = f"hosted_vllm/{model}"
 
         return model

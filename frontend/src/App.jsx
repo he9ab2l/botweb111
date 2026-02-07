@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Settings } from 'lucide-react'
 import { useEventStream } from './hooks/useEventStream'
 import { useMediaQuery } from './hooks/useMediaQuery'
-import { createSession, listSessions, deleteSession, getSession, renameSession, sendMessage, cancelRun, resolvePermission } from './lib/api'
+import { createSession, listSessions, deleteSession, getSession, getConfig, getSessionModel, renameSession, sendMessage, cancelRun, resolvePermission } from './lib/api'
 import { cn } from './lib/utils'
 import Sidebar from './components/Sidebar'
 import ChatTimeline from './components/ChatTimeline'
 import InputArea from './components/InputArea'
 import Inspector from './components/Inspector'
 import PermissionModal from './components/PermissionModal'
+import ModelSettingsModal from './components/ModelSettingsModal'
 
 export default function App() {
   const isMobile = useMediaQuery('(max-width: 768px)')
@@ -24,8 +25,29 @@ export default function App() {
   const [localSendingSessionId, setLocalSendingSessionId] = useState(null)
   const [searchFocusTrigger, setSearchFocusTrigger] = useState(0)
 
+  // Model/config state
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [configSummary, setConfigSummary] = useState(null)
+  const [sessionModelInfo, setSessionModelInfo] = useState(null)
+
   // SSE event stream for active session
   const eventState = useEventStream(activeSessionId)
+
+  const reloadConfig = useCallback(() => {
+    getConfig()
+      .then(cfg => setConfigSummary(cfg))
+      .catch(() => {})
+  }, [])
+
+  const reloadSessionModel = useCallback((sid) => {
+    if (!sid) {
+      setSessionModelInfo(null)
+      return
+    }
+    getSessionModel(sid)
+      .then(sm => setSessionModelInfo(sm))
+      .catch(() => setSessionModelInfo(null))
+  }, [])
 
   // Load sessions on mount
   useEffect(() => {
@@ -33,6 +55,10 @@ export default function App() {
       .then(list => setSessions(list))
       .catch(err => console.error('Failed to load sessions:', err))
   }, [])
+
+  useEffect(() => {
+    reloadConfig()
+  }, [reloadConfig])
 
   // On mobile, default panels to closed.
   useEffect(() => {
@@ -87,6 +113,10 @@ export default function App() {
     }
   }, [activeSessionId])
 
+  useEffect(() => {
+    reloadSessionModel(activeSessionId)
+  }, [activeSessionId, reloadSessionModel])
+
   const addPendingMessage = useCallback((sessionId, text) => {
     const localId = `local_user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const localMsg = {
@@ -126,6 +156,7 @@ export default function App() {
       }
       if (e.key === 'Escape') {
         setInspectorOpen(false)
+        setSettingsOpen(false)
       }
     }
     window.addEventListener('keydown', handler)
@@ -229,6 +260,8 @@ export default function App() {
 
   const isRunning = eventState.status === 'running' || localSendingSessionId === activeSessionId
 
+  const modelLabel = (sessionModelInfo?.effective_model || configSummary?.default_model || '').trim()
+
   // Merge history messages with live SSE blocks
   const pendingForActive = activeSessionId ? (pendingMessages[activeSessionId] || []) : []
   const allBlocks = [...historyMessages, ...pendingForActive, ...eventState.blocks]
@@ -300,6 +333,17 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="flex items-center gap-1 px-2 py-1 rounded border border-border-soft bg-bg-secondary text-text-muted hover:text-text-primary hover:border-border transition-colors"
+              title="Model & API Settings"
+            >
+              <Settings size={14} />
+              <span className="text-[11px] font-mono max-w-[260px] truncate hidden md:inline">
+                {modelLabel || 'Model'}
+              </span>
+            </button>
+
             <div className="flex items-center bg-bg-secondary rounded border border-border-soft p-0.5">
               <button
                 onClick={() => setViewMode('chat')}
@@ -422,6 +466,16 @@ export default function App() {
           eventState.clearPendingPermission()
         }}
         onClose={() => eventState.clearPendingPermission()}
+      />
+
+      <ModelSettingsModal
+        open={settingsOpen}
+        sessionId={activeSessionId}
+        onClose={() => setSettingsOpen(false)}
+        onUpdated={() => {
+          reloadConfig()
+          reloadSessionModel(activeSessionId)
+        }}
       />
     </div>
   )

@@ -57,8 +57,17 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
     data = config.model_dump()
     data = convert_to_camel(data)
     
-    with open(path, "w") as f:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+
+    # Best-effort: restrict permissions on config file.
+    try:
+        tmp.chmod(0o600)
+    except Exception:
+        pass
+
+    tmp.replace(path)
 
 
 def convert_keys(data: Any) -> Any:

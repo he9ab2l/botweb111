@@ -93,7 +93,7 @@ def _tool_ok_and_error(tool_name: str, tool_output: str) -> tuple[bool, str]:
 
 
 class SpawnSubagentTool(Tool):
-    def __init__(self, runner: "FanfanWebRunner"):
+    def __init__(self, runner: "FanfanWebRunner | None" = None):
         self._runner = runner
         self._ctx: dict[str, str] = {}
 
@@ -142,6 +142,9 @@ class SpawnSubagentTool(Tool):
         parent_tool_call_id = ctx.get("parent_tool_call_id", "")
         if not session_id or not turn_id or not step_id or not parent_tool_call_id:
             return "Error: spawn_subagent missing execution context"
+
+        if self._runner is None:
+            return "Error: spawn_subagent tool is not available in this context"
 
         return await self._runner._run_subagent(
             session_id=session_id,

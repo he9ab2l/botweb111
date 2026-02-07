@@ -16,6 +16,12 @@ export async function sendMessage(sessionId, content) {
 
 export const cancelRun = client.cancelRun
 
+export const getConfig = client.getConfig
+export const updateConfig = client.updateConfig
+export const getSessionModel = client.getSessionModel
+export const setSessionModel = client.setSessionModel
+export const clearSessionModel = client.clearSessionModel
+
 export const fsTree = client.fsTree
 export const fsRead = client.fsRead
 export const fsVersions = client.fsVersions
